@@ -12,7 +12,8 @@ import {
   Book as BookIcon,
   Bookmark as BookmarkIcon,
   QuestionAnswer as QuizIcon,
-  Logout as LogoutIcon
+  Logout as LogoutIcon,
+  Translate as TranslateIcon
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -44,16 +45,17 @@ const Layout: React.FC = () => {
 
   const menuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/' },
-    { text: 'Paragraphs', icon: <BookIcon />, path: '/paragraphs' },
-    { text: 'Saved Words', icon: <BookmarkIcon />, path: '/saved-words' },
+    { text: 'German Texts', icon: <BookIcon />, path: '/paragraphs' },
+    { text: 'Vocabulary', icon: <BookmarkIcon />, path: '/saved-words' },
     { text: 'Quizzes', icon: <QuizIcon />, path: '/quizzes' },
   ];
 
   const drawer = (
     <div>
       <Toolbar>
+        <TranslateIcon sx={{ mr: 1 }} />
         <Typography variant="h6" component="div" sx={{ fontWeight: 'bold' }}>
-          LangLearn
+          GermanLearner
         </Typography>
       </Toolbar>
       <Divider />
@@ -90,7 +92,7 @@ const Layout: React.FC = () => {
             <MenuIcon />
           </IconButton>
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            Language Learning App
+            German Language Learning App
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
             <Typography variant="body1" sx={{ mr: 2 }}>

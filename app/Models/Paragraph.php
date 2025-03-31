@@ -5,16 +5,16 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class SavedWord extends Model
+class Paragraph extends Model
 {
     use HasFactory;
 
     protected $fillable = [
-        'word',
-        'context',
-        'definition',
+        'content',
+        'level',
+        'title',
+        'topic',
         'user_id',
-        'paragraph_id',
     ];
 
     public function user()
@@ -22,8 +22,8 @@ class SavedWord extends Model
         return $this->belongsTo(User::class);
     }
 
-    public function paragraph()
+    public function savedWords()
     {
-        return $this->belongsTo(Paragraph::class);
+        return $this->hasMany(SavedWord::class);
     }
 }

@@ -1,5 +1,5 @@
 <?php
-// app/Services/OpenAIService.php
+
 namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
@@ -28,7 +28,7 @@ class OpenAIService
                 'messages' => [
                     [
                         'role' => 'system',
-                        'content' => 'You are a language teacher creating content for language learners.'
+                        'content' => 'You are a German language teacher creating content for German language learners.'
                     ],
                     [
                         'role' => 'user',
@@ -69,10 +69,11 @@ class OpenAIService
 
     public function generateWordDefinition($word, $context = null)
     {
-        $prompt = "Provide a clear and concise definition for the word '$word'";
+        $prompt = "Provide a clear and concise definition in English for the German word '$word'";
         if ($context) {
             $prompt .= " as used in this context: '$context'";
         }
+        $prompt .= ". Also include the gender if it's a noun (der/die/das), the verb form if applicable, and example usage in a simple sentence.";
 
         try {
             $response = Http::withHeaders([
@@ -83,7 +84,7 @@ class OpenAIService
                 'messages' => [
                     [
                         'role' => 'system',
-                        'content' => 'You are a helpful dictionary assistant.'
+                        'content' => 'You are a helpful German-English dictionary assistant.'
                     ],
                     [
                         'role' => 'user',
@@ -91,7 +92,7 @@ class OpenAIService
                     ]
                 ],
                 'temperature' => 0.3,
-                'max_tokens' => 100,
+                'max_tokens' => 150,
             ]);
 
             if ($response->successful()) {
@@ -128,17 +129,17 @@ class OpenAIService
             return $word['word'];
         }, $words));
 
-        $prompt = "Create a " . ucfirst($type) . " quiz for the following words: $wordsList. ";
+        $prompt = "Create a German " . ucfirst($type) . " quiz for the following words: $wordsList. ";
 
         switch ($type) {
             case 'multiple_choice':
-                $prompt .= "For each word, provide a question about its meaning, 4 options (A, B, C, D), and the correct answer.";
+                $prompt .= "For each word, provide a question about its meaning in English, 4 options (A, B, C, D), and the correct answer.";
                 break;
             case 'fill_blank':
-                $prompt .= "For each word, create a sentence with a blank where the word should go, and the correct answer.";
+                $prompt .= "For each word, create a German sentence with a blank where the word should go, and the correct answer.";
                 break;
             case 'matching':
-                $prompt .= "Create a list of words and a shuffled list of definitions to match.";
+                $prompt .= "Create a list of German words and a shuffled list of English definitions to match.";
                 break;
         }
 
@@ -153,7 +154,7 @@ class OpenAIService
                 'messages' => [
                     [
                         'role' => 'system',
-                        'content' => 'You are a language teacher creating quizzes for language learners. Always respond with valid JSON.'
+                        'content' => 'You are a German language teacher creating quizzes for German language learners. Always respond with valid JSON.'
                     ],
                     [
                         'role' => 'user',
@@ -210,7 +211,7 @@ class OpenAIService
     {
         $levelDescription = $this->getLevelDescription($level);
 
-        $prompt = "Generate a paragraph for language learners at $level level ($levelDescription). ";
+        $prompt = "Generate a German paragraph for language learners at $level level ($levelDescription). ";
 
         if ($topic) {
             $prompt .= "The topic should be about '$topic'. ";
@@ -218,10 +219,11 @@ class OpenAIService
 
         $prompt .= "The paragraph should:
         1. Be approximately 100-150 words
-        2. Use vocabulary and grammar appropriate for $level level
+        2. Use vocabulary and grammar appropriate for $level level German
         3. Include a variety of sentence structures
         4. Be engaging and interesting to read
-        5. Avoid using extremely rare or technical vocabulary unless necessary for the topic";
+        5. Avoid using extremely rare or technical vocabulary unless necessary for the topic
+        6. Be culturally relevant to German-speaking countries";
 
         return $prompt;
     }
@@ -229,10 +231,10 @@ class OpenAIService
     private function getLevelDescription($level)
     {
         $descriptions = [
-            'A2' => 'basic/elementary level - can understand sentences and frequently used expressions related to areas of most immediate relevance',
-            'B1' => 'intermediate level - can deal with most situations likely to arise while traveling in an area where the language is spoken',
-            'B2' => 'upper intermediate level - can interact with a degree of fluency and spontaneity that makes regular interaction with native speakers quite possible',
-            'C1' => 'advanced level - can express ideas fluently and spontaneously without much obvious searching for expressions',
+            'A2' => 'basic/elementary level - can understand sentences and frequently used expressions related to areas of most immediate relevance in German',
+            'B1' => 'intermediate level - can deal with most situations likely to arise while traveling in a German-speaking area',
+            'B2' => 'upper intermediate level - can interact with a degree of fluency and spontaneity that makes regular interaction with native German speakers quite possible',
+            'C1' => 'advanced level - can express ideas fluently and spontaneously in German without much obvious searching for expressions',
         ];
 
         return $descriptions[$level] ?? 'intermediate level';

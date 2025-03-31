@@ -37,14 +37,35 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
-// Create a theme
+// Create a theme with German colors
 const theme = createTheme({
   palette: {
     primary: {
-      main: '#3f51b5',
+      main: '#202d5a', // Dark blue from German flag
+      light: '#4e5986',
+      dark: '#000032',
+      contrastText: '#ffffff',
     },
     secondary: {
-      main: '#f50057',
+      main: '#dd0000', // Red from German flag
+      light: '#ff4d30',
+      dark: '#a30000',
+      contrastText: '#ffffff',
+    },
+    background: {
+      default: '#f8f9fa',
+    },
+  },
+  typography: {
+    fontFamily: "'Roboto', 'Arial', sans-serif",
+    h1: {
+      fontWeight: 500,
+    },
+    h2: {
+      fontWeight: 500,
+    },
+    h3: {
+      fontWeight: 500,
     },
   },
 });
