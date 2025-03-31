@@ -1,29 +1,6 @@
 // src/services/api.ts
-import axios from 'axios';
+import { api } from '../contexts/AuthContext';
 import { User, Paragraph, SavedWord, Quiz, QuizAttempt, PaginatedResponse } from '../types';
-
-const API_URL = 'http://localhost:8000/api';
-
-// Create an axios instance
-const api = axios.create({
-  baseURL: API_URL,
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-  },
-});
-
-// Add a request interceptor to include the auth token
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
 
 // Auth Services
 interface LoginResponse {
@@ -144,5 +121,3 @@ export const quizService = {
   getAttempts: (id: number) =>
     api.get<QuizAttempt[]>(`/quizzes/${id}/attempts`),
 };
-
-export default api;

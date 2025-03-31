@@ -1,3 +1,4 @@
+// src/pages/ParagraphDetailPage.tsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import {
@@ -103,14 +104,14 @@ const ParagraphDetailPage: React.FC = () => {
   };
 
   const handleSaveWord = async () => {
-    if (!selectedWord) return;
+    if (!selectedWord || !id) return;
 
     setSavingWord(true);
     try {
       await savedWordService.create({
         word: selectedWord,
-        context: selectedContext,
-        paragraph_id: id
+        context: selectedContext || undefined,
+        paragraph_id: parseInt(id)
       });
 
       setSuccess(`Word "${selectedWord}" saved to your vocabulary`);
@@ -142,8 +143,8 @@ const ParagraphDetailPage: React.FC = () => {
 
     // Create a regex to match all saved words
     const wordsPattern = savedWords
-      .map(word => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) // Escape special regex chars
-      .join('|');
+  .map(word => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) // Escape special regex chars
+  .join('|');
 
     const regex = new RegExp(`\\b(${wordsPattern})\\b`, 'gi');
 

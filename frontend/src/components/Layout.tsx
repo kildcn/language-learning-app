@@ -39,8 +39,12 @@ const Layout: React.FC = () => {
 
   const handleLogout = async () => {
     handleMenuClose();
-    await logout();
-    navigate('/login');
+    try {
+      await logout();
+      navigate('/login');
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
   };
 
   const menuItems = [
@@ -96,7 +100,7 @@ const Layout: React.FC = () => {
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
             <Typography variant="body1" sx={{ mr: 2 }}>
-              {user?.name}
+              {user?.name || 'User'}
             </Typography>
             <IconButton onClick={handleMenuOpen} color="inherit">
               <Avatar sx={{ width: 32, height: 32 }}>

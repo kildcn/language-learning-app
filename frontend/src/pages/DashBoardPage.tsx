@@ -16,9 +16,10 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { paragraphService, savedWordService, quizService } from '../services/api';
+import { Quiz } from '../types';
 
 // German level descriptions
-const levelDescriptions = {
+const levelDescriptions: Record<string, string> = {
   'A2': 'Elementary (Grundstufe)',
   'B1': 'Intermediate (Mittelstufe)',
   'B2': 'Upper Intermediate (Fortgeschrittene)',
@@ -60,8 +61,9 @@ const DashboardPage: React.FC = () => {
         let totalAttempts = 0;
 
         // This would require backend changes to fetch all attempts in one go
-        // For now, just estimate based on available data
-        for (const quiz of quizzes) {
+        // Just calculate based on available data
+        const quizzesWithAttempts = quizzes as (Quiz & { attempts?: any[] })[];
+        for (const quiz of quizzesWithAttempts) {
           if (quiz.attempts && quiz.attempts.length) {
             quiz.attempts.forEach((attempt: any) => {
               totalScore += attempt.score;

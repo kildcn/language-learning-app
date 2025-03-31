@@ -1,33 +1,89 @@
 // src/pages/RegisterPage.tsx
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
-import { Formik, Form, Field, ErrorMessage } from 'formik';
-import * as Yup from 'yup';
 import {
   Container, Box, Typography, TextField, Button,
-  Paper, Avatar, Link, Alert
+  Paper, Avatar, Link, Alert, CircularProgress
 } from '@mui/material';
 import { LockOutlined as LockOutlinedIcon } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 
-const RegisterSchema = Yup.object().shape({
-  name: Yup.string().required('Required'),
-  email: Yup.string().email('Invalid email').required('Required'),
-  password: Yup.string().min(8, 'Password must be at least 8 characters').required('Required'),
-  password_confirmation: Yup.string()
-    .oneOf([Yup.ref('password')], 'Passwords must match')
-    .required('Required'),
-});
-
 const RegisterPage: React.FC = () => {
   const { register, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [passwordConfirmation, setPasswordConfirmation] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formErrors, setFormErrors] = useState<{[key: string]: string}>({});
 
   useEffect(() => {
     if (isAuthenticated) {
       navigate('/');
     }
   }, [isAuthenticated, navigate]);
+
+  const validateForm = () => {
+    const errors: {[key: string]: string} = {};
+
+    if (!name.trim()) {
+      errors.name = "Name is required";
+    }
+
+    if (!email.trim()) {
+      errors.email = "Email is required";
+    } else if (!/\S+@\S+\.\S+/.test(email)) {
+      errors.email = "Email is invalid";
+    }
+
+    if (!password) {
+      errors.password = "Password is required";
+    } else if (password.length < 8) {
+      errors.password = "Password must be at least 8 characters";
+    }
+
+    if (password !== passwordConfirmation) {
+      errors.passwordConfirmation = "Passwords must match";
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    if (!validateForm()) {
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      await register(name, email, password, passwordConfirmation);
+      navigate('/');
+    } catch (err: any) {
+      console.error('Registration error:', err);
+      if (err.response?.data?.errors) {
+        // Handle Laravel validation errors
+        const serverErrors = err.response.data.errors;
+        const formattedErrors: {[key: string]: string} = {};
+
+        Object.keys(serverErrors).forEach(key => {
+          formattedErrors[key] = serverErrors[key][0];
+        });
+
+        setFormErrors(formattedErrors);
+      } else {
+        setError(err.response?.data?.message || 'Registration failed. Please try again.');
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <Container component="main" maxWidth="xs">
@@ -47,96 +103,86 @@ const RegisterPage: React.FC = () => {
         <Typography component="h1" variant="h5">
           Sign up
         </Typography>
-        <Formik
-          initialValues={{ name: '', email: '', password: '', password_confirmation: '' }}
-          validationSchema={RegisterSchema}
-          onSubmit={async (values, { setSubmitting, setStatus }) => {
-            try {
-              await register(
-                values.name,
-                values.email,
-                values.password,
-                values.password_confirmation
-              );
-              navigate('/');
-            } catch (error: any) {
-              setStatus({ error: error.response?.data?.message || 'Registration failed' });
-            } finally {
-              setSubmitting(false);
-            }
-          }}
-        >
-          {({ isSubmitting, status, errors, touched }) => (
-            <Form>
-              <Box sx={{ mt: 1 }}>
-                {status && status.error && (
-                  <Alert severity="error" sx={{ mb: 2 }}>
-                    {status.error}
-                  </Alert>
-                )}
-                <Field
-                  as={TextField}
-                  margin="normal"
-                  fullWidth
-                  id="name"
-                  label="Full Name"
-                  name="name"
-                  autoComplete="name"
-                  autoFocus
-                  error={touched.name && Boolean(errors.name)}
-                  helperText={touched.name && errors.name}
-                />
-                <Field
-                  as={TextField}
-                  margin="normal"
-                  fullWidth
-                  id="email"
-                  label="Email Address"
-                  name="email"
-                  autoComplete="email"
-                  error={touched.email && Boolean(errors.email)}
-                  helperText={touched.email && errors.email}
-                />
-                <Field
-                  as={TextField}
-                  margin="normal"
-                  fullWidth
-                  name="password"
-                  label="Password"
-                  type="password"
-                  id="password"
-                  autoComplete="new-password"
-                  error={touched.password && Boolean(errors.password)}
-                  helperText={touched.password && errors.password}
-                />
-                <Field
-                  as={TextField}
-                  margin="normal"
-                  fullWidth
-                  name="password_confirmation"
-                  label="Confirm Password"
-                  type="password"
-                  id="password_confirmation"
-                  autoComplete="new-password"
-                  error={touched.password_confirmation && Boolean(errors.password_confirmation)}
-                  helperText={touched.password_confirmation && errors.password_confirmation}
-                />
-                <Button
-                  type="submit"
-                  fullWidth
-                  variant="contained"
-                  sx={{ mt: 3, mb: 2 }}
-                  disabled={isSubmitting}
-                >
-                  Sign Up
-                </Button>
-                <Link component={RouterLink} to="/login" variant="body2">
-                  {"Already have an account? Sign In"}
-                </Link>
-              </Box>
-            </Form>
+        <Box sx={{ mt: 1, width: '100%' }}>
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {error}
+            </Alert>
           )}
-        </Formik>
+          <form onSubmit={handleSubmit}>
+            <TextField
+              margin="normal"
+              required
+              fullWidth
+              id="name"
+              label="Full Name"
+              name="name"
+              autoComplete="name"
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              error={!!formErrors.name}
+              helperText={formErrors.name}
+              disabled={isSubmitting}
+            />
+            <TextField
+              margin="normal"
+              required
+              fullWidth
+              id="email"
+              label="Email Address"
+              name="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              error={!!formErrors.email}
+              helperText={formErrors.email}
+              disabled={isSubmitting}
+            />
+            <TextField
+              margin="normal"
+              required
+              fullWidth
+              name="password"
+              label="Password"
+              type="password"
+              id="password"
+              autoComplete="new-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              error={!!formErrors.password}
+              helperText={formErrors.password}
+              disabled={isSubmitting}
+            />
+            <TextField
+              margin="normal"
+              required
+              fullWidth
+              name="password_confirmation"
+              label="Confirm Password"
+              type="password"
+              id="password_confirmation"
+              autoComplete="new-password"
+              value={passwordConfirmation}
+              onChange={(e) => setPasswordConfirmation(e.target.value)}
+              error={!!formErrors.passwordConfirmation}
+              helperText={formErrors.passwordConfirmation}
+              disabled={isSubmitting}
+            />
+            <Button
+              type="submit"
+              fullWidth
+              variant="contained"
+              sx={{ mt: 3, mb: 2 }}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? <CircularProgress size={24} /> : 'Sign Up'}
+            </Button>
+            <Link component={RouterLink} to="/login" variant="body2">
+              {"Already have an account? Sign In"}
+            </Link>
+          </form>
+        </Box>
       </Paper>
     </Container>
   );

@@ -9,8 +9,10 @@ import {
 } from '@mui/material';
 import { paragraphService } from '../services/api';
 
+type LevelType = 'A2' | 'B1' | 'B2' | 'C1';
+
 const CreateParagraphSchema = Yup.object().shape({
-  level: Yup.string().required('Required'),
+  level: Yup.string().oneOf(['A2', 'B1', 'B2', 'C1'], 'Invalid level').required('Required'),
   topic: Yup.string().max(100, 'Topic must be at most 100 characters'),
 });
 
@@ -40,12 +42,15 @@ const CreateParagraphPage: React.FC = () => {
         )}
 
         <Formik
-          initialValues={{ level: 'B1', topic: '' }}
+          initialValues={{ level: 'B1' as LevelType, topic: '' }}
           validationSchema={CreateParagraphSchema}
           onSubmit={async (values, { setSubmitting }) => {
             setError(null);
             try {
-              const response = await paragraphService.create(values);
+              const response = await paragraphService.create({
+                level: values.level,
+                topic: values.topic || undefined
+              });
               navigate(`/paragraphs/${response.data.paragraph.id}`);
             } catch (error: any) {
               console.error('Error creating paragraph:', error);

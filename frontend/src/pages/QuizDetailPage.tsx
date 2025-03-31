@@ -6,7 +6,8 @@ import {
   RadioGroup, Radio, FormControlLabel, FormControl, FormLabel,
   Stepper, Step, StepLabel, TextField, Card, CardContent,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
-  List, ListItem, ListItemText, Divider, Grid, IconButton, Tooltip
+  List, ListItem, ListItemText, Divider, Grid, IconButton, Tooltip,
+  MenuItem, Chip
 } from '@mui/material';
 import {
   VolumeUp as VolumeUpIcon,
@@ -435,7 +436,7 @@ const QuizDetailPage: React.FC = () => {
       ) : (
         <Paper sx={{ p: 3 }}>
           <Stepper activeStep={currentQuestion} alternativeLabel sx={{ mb: 4 }}>
-            {questions.map((_, index) => (
+            {questions.map((_: any, index: number) => (
               <Step key={index}>
                 <StepLabel>Q{index + 1}</StepLabel>
               </Step>

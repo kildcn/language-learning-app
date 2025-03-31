@@ -13,9 +13,20 @@ class Cors
      */
     public function handle(Request $request, Closure $next): Response
     {
-        return $next($request)
-            ->header('Access-Control-Allow-Origin', env('FRONTEND_URL', 'http://localhost:3000'))
-            ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-            ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+        $response = $next($request);
+        $frontendUrl = env('FRONTEND_URL', 'http://localhost:3000');
+
+        $response->headers->set('Access-Control-Allow-Origin', $frontendUrl);
+        $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+        $response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-XSRF-TOKEN');
+        $response->headers->set('Access-Control-Allow-Credentials', 'true');
+
+        // Handle preflight OPTIONS request
+        if ($request->isMethod('OPTIONS')) {
+            $response->setStatusCode(200);
+            return $response;
+        }
+
+        return $response;
     }
 }

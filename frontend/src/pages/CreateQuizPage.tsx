@@ -16,9 +16,11 @@ import {
 } from '@mui/icons-material';
 import { savedWordService, quizService } from '../services/api';
 
+type QuizType = 'multiple_choice' | 'fill_blank' | 'matching';
+
 const CreateQuizSchema = Yup.object().shape({
   title: Yup.string().required('Required'),
-  type: Yup.string().required('Required'),
+  type: Yup.string().oneOf(['multiple_choice', 'fill_blank', 'matching'], 'Invalid quiz type').required('Required'),
   word_ids: Yup.array().min(1, 'Select at least one word').required('Required'),
 });
 
@@ -72,7 +74,7 @@ const CreateQuizPage: React.FC = () => {
     }
   };
 
-  const quizTypeDescriptions = {
+  const quizTypeDescriptions: Record<QuizType, string> = {
     'multiple_choice': 'You will be presented with a German word and four possible English translations. Choose the correct one.',
     'fill_blank': 'Complete German sentences by filling in the correct word from your vocabulary list.',
     'matching': 'Match German words with their English translations.'
@@ -116,8 +118,8 @@ const CreateQuizPage: React.FC = () => {
         <Formik
           initialValues={{
             title: '',
-            type: 'multiple_choice',
-            word_ids: [],
+            type: 'multiple_choice' as QuizType,
+            word_ids: [] as number[],
           }}
           validationSchema={CreateQuizSchema}
           onSubmit={async (values, { setSubmitting, setStatus }) => {
@@ -168,7 +170,7 @@ const CreateQuizPage: React.FC = () => {
                   </Field>
                   <Typography variant="body2" color="textSecondary" sx={{ mt: 1, display: 'flex', alignItems: 'center' }}>
                     <HelpIcon fontSize="small" sx={{ mr: 0.5 }} />
-                    {quizTypeDescriptions[values.type as keyof typeof quizTypeDescriptions]}
+                    {quizTypeDescriptions[values.type]}
                   </Typography>
                 </Grid>
               </Grid>
