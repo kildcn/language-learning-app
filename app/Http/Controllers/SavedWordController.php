@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\SavedWord;
 use App\Services\OpenAIService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class SavedWordController extends Controller
 {
@@ -47,28 +48,46 @@ class SavedWordController extends Controller
             ]);
         }
 
-        // Generate definition using OpenAI
-        $definitionResult = $this->openaiService->generateWordDefinition(
-            $request->word,
-            $request->context
-        );
+        // Generate definition using Hugging Face (via OpenAIService)
+        try {
+            $definitionResult = $this->openaiService->generateWordDefinition(
+                $request->word,
+                $request->context
+            );
 
-        $definition = $definitionResult['success']
-            ? $definitionResult['definition']
-            : null;
+            // OpenAIService now always returns success=true
+            // with fallback definitions when needed
+            $definition = $definitionResult['content'] ?? $definitionResult['definition'] ?? null;
 
-        $savedWord = SavedWord::create([
-            'word' => $request->word,
-            'context' => $request->context,
-            'definition' => $definition,
-            'user_id' => $request->user()->id,
-            'paragraph_id' => $request->paragraph_id,
-        ]);
+            if (!$definition) {
+                $definition = "No definition available for this word.";
+            }
+        } catch (\Exception $e) {
+            // Log the error but continue with a fallback definition
+            Log::error('Definition generation failed: ' . $e->getMessage());
+            $definition = "No definition available at this time.";
+        }
 
-        return response()->json([
-            'message' => 'Word saved successfully',
-            'savedWord' => $savedWord,
-        ], 201);
+        try {
+            $savedWord = SavedWord::create([
+                'word' => $request->word,
+                'context' => $request->context,
+                'definition' => $definition,
+                'user_id' => $request->user()->id,
+                'paragraph_id' => $request->paragraph_id,
+            ]);
+
+            return response()->json([
+                'message' => 'Word saved successfully',
+                'savedWord' => $savedWord,
+            ], 201);
+        } catch (\Exception $e) {
+            Log::error('Error saving word: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Failed to save word',
+                'error' => 'Database error'
+            ], 500);
+        }
     }
 
     public function show(SavedWord $savedWord)
@@ -110,25 +129,34 @@ class SavedWordController extends Controller
     {
         $this->authorize('update', $savedWord);
 
-        $definitionResult = $this->openaiService->generateWordDefinition(
-            $savedWord->word,
-            $savedWord->context
-        );
+        try {
+            $definitionResult = $this->openaiService->generateWordDefinition(
+                $savedWord->word,
+                $savedWord->context
+            );
 
-        if (!$definitionResult['success']) {
+            // Our modified service should always return success
+            $definition = $definitionResult['content'] ?? $definitionResult['definition'] ?? null;
+
+            if (!$definition) {
+                $definition = "No definition available for this word.";
+            }
+
+            $savedWord->update([
+                'definition' => $definition
+            ]);
+
             return response()->json([
-                'message' => 'Failed to generate definition',
-                'error' => $definitionResult['error']
+                'message' => 'Definition regenerated successfully',
+                'savedWord' => $savedWord,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error regenerating definition: ' . $e->getMessage());
+
+            return response()->json([
+                'message' => 'Failed to regenerate definition',
+                'error' => 'Service unavailable'
             ], 500);
         }
-
-        $savedWord->update([
-            'definition' => $definitionResult['definition']
-        ]);
-
-        return response()->json([
-            'message' => 'Definition regenerated successfully',
-            'savedWord' => $savedWord,
-        ]);
     }
 }

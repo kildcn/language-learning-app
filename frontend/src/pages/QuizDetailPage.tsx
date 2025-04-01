@@ -2,12 +2,12 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Box, Typography, Paper, Button, CircularProgress, Alert,
+  Box, Typography, Paper, Button, TextField, CircularProgress,
   RadioGroup, Radio, FormControlLabel, FormControl, FormLabel,
-  Stepper, Step, StepLabel, TextField, Card, CardContent,
+  Stepper, Step, StepLabel, Card, CardContent,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
   List, ListItem, ListItemText, Divider, Grid, IconButton, Tooltip,
-  MenuItem, Chip
+  MenuItem, Chip, Alert
 } from '@mui/material';
 import {
   VolumeUp as VolumeUpIcon,
@@ -143,10 +143,11 @@ const QuizDetailPage: React.FC = () => {
 
   // Generate a hint based on quiz type and current question
   const generateHint = (): string => {
-    const question = questions[currentQuestion];
-    if (!question) return '';
+    if (!questions || !questions[currentQuestion]) return '';
 
-    switch (quiz.type) {
+    const question = questions[currentQuestion];
+
+    switch (quiz?.type) {
       case 'multiple_choice':
         return "Try to recall the meaning of this German word. Think about its context or any similar words you may know.";
 
@@ -182,7 +183,7 @@ const QuizDetailPage: React.FC = () => {
     (quiz.questions ? Object.values(quiz.questions) : []);
 
   const renderQuestion = () => {
-    if (!questions[currentQuestion]) return null;
+    if (!questions || !questions[currentQuestion]) return null;
 
     const question = questions[currentQuestion];
 
@@ -192,9 +193,9 @@ const QuizDetailPage: React.FC = () => {
           <Box>
             <Box display="flex" alignItems="center">
               <Typography variant="h6" gutterBottom>
-                {question.question}
+                {question.question || "What does this word mean?"}
               </Typography>
-              {question.question.includes('mean') && (
+              {question.question && typeof question.question === 'string' && question.question.includes('mean') && (
                 <Tooltip title="Listen to pronunciation">
                   <IconButton
                     onClick={() => {
@@ -242,7 +243,7 @@ const QuizDetailPage: React.FC = () => {
               sx={{ p: 2, mb: 2, backgroundColor: 'rgba(0, 0, 0, 0.02)' }}
             >
               <Typography variant="body1">
-                {question.sentence.replace('_____', '________')}
+                {question.sentence ? question.sentence.replace('_____', '________') : "_____ (Missing sentence)"}
               </Typography>
             </Paper>
             <TextField
@@ -257,8 +258,10 @@ const QuizDetailPage: React.FC = () => {
               startIcon={<VolumeUpIcon />}
               onClick={() => {
                 // Speak the sentence but replace the blank with a pause
-                const sentenceWithPause = question.sentence.replace('_____', '... ');
-                speakGerman(sentenceWithPause);
+                if (question.sentence) {
+                  const sentenceWithPause = question.sentence.replace('_____', '... ');
+                  speakGerman(sentenceWithPause);
+                }
               }}
               sx={{ mt: 1 }}
             >
@@ -276,15 +279,17 @@ const QuizDetailPage: React.FC = () => {
             </Typography>
             <Box display="flex" alignItems="center">
               <Typography variant="h5" sx={{ mr: 2 }}>
-                {question.word}
+                {question.word || "(Missing word)"}
               </Typography>
-              <IconButton
-                onClick={() => speakGerman(question.word)}
-                color="primary"
-                size="small"
-              >
-                <VolumeUpIcon />
-              </IconButton>
+              {question.word && (
+                <IconButton
+                  onClick={() => speakGerman(question.word)}
+                  color="primary"
+                  size="small"
+                >
+                  <VolumeUpIcon />
+                </IconButton>
+              )}
             </Box>
             <TextField
               select
@@ -294,7 +299,7 @@ const QuizDetailPage: React.FC = () => {
               onChange={(e) => handleAnswerChange(e.target.value)}
               margin="normal"
             >
-              {question.options.map((option: string, index: number) => (
+              {question.options && Array.isArray(question.options) && question.options.map((option: string, index: number) => (
                 <MenuItem key={index} value={index}>
                   {option}
                 </MenuItem>
@@ -311,7 +316,7 @@ const QuizDetailPage: React.FC = () => {
   return (
     <Box>
       <Typography variant="h4" gutterBottom>
-        {quiz.title}
+        {quiz.title || "Quiz"}
       </Typography>
 
       {error && (
