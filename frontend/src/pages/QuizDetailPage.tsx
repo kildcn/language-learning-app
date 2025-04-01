@@ -178,9 +178,9 @@ const QuizDetailPage: React.FC = () => {
   }
 
   // Format questions based on quiz type
-  const questions = Array.isArray(quiz.questions) ?
-    quiz.questions :
-    (quiz.questions ? Object.values(quiz.questions) : []);
+  const questions = Array.isArray(quiz?.questions?.questions)
+    ? quiz.questions.questions
+    : [];
 
   const renderQuestion = () => {
     if (!questions || !questions[currentQuestion]) return null;
