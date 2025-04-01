@@ -42,10 +42,7 @@ class OpenAIService
             ];
         }
 
-        $prompt = "Translate the German word '$word' to English. Provide ONLY the direct English translation as a single word or very short phrase, with no additional explanation, context, or formatting.";
-        if ($context) {
-            $prompt .= " Consider this context: '$context'";
-        }
+        $prompt = "Translate the German word '$word' to English. Provide ONLY the direct English translation as a single with no additional explanation, context, or formatting. 1 word, extremely important!!!!.";
 
         $result = $this->generateWithHuggingFace($prompt);
 
@@ -130,84 +127,6 @@ class OpenAIService
         return $result ?: "translation unavailable";
     }
 
-    public function regenerateDefinition(Request $request, SavedWord $savedWord)
-    {
-        $this->authorize('update', $savedWord);
-
-        try {
-            // Special case for Herbst which appears to be problematic
-            if (strtolower($savedWord->word) === 'herbst') {
-                // Force this specific update
-                $savedWord->definition = 'autumn';
-                $savedWord->save();
-
-                return response()->json([
-                    'message' => 'Definition regenerated successfully',
-                    'savedWord' => $savedWord->fresh(),
-                ]);
-            }
-
-            // Force specific translations for problematic words
-            $specificOverrides = [
-                'herbst' => 'autumn',
-                'kneipe' => 'pub',
-                'entscheiden' => 'decide',
-                'hälfte' => 'half',
-                'tankstelle' => 'gas station',
-                'nachrichtenstelle' => 'news office'
-            ];
-
-            // Check if we have a direct override for this word (case insensitive)
-            $wordLower = strtolower($savedWord->word);
-            if (array_key_exists($wordLower, $specificOverrides)) {
-                $definition = $specificOverrides[$wordLower];
-
-                // Explicitly update the model to ensure it saves
-                $savedWord->definition = $definition;
-                $savedWord->save();
-
-                return response()->json([
-                    'message' => 'Definition regenerated successfully',
-                    'savedWord' => $savedWord->fresh(), // Use fresh() to get the updated record
-                ]);
-            }
-
-            // If no override, proceed with normal logic
-            $definitionResult = $this->openaiService->generateWordDefinition(
-                $savedWord->word,
-                $savedWord->context
-            );
-
-            // Get the response from the API
-            $definition = $definitionResult['content'] ?? $definitionResult['definition'] ?? null;
-
-            // Validate the response - if it's nonsensical, use "no translation available"
-            $isValid = !empty($definition) &&
-                     strlen($definition) >= 2 &&
-                     !preg_match('/^[a-z],\s/', $definition) && // Catches patterns like "h, Kneipe means"
-                     !preg_match('/efer\s/', $definition);      // Catches the "efer Bäume zu" case
-
-            if (!$isValid) {
-                $definition = "translation unavailable";
-            }
-
-            // Direct model update to ensure it saves
-            $savedWord->definition = $definition;
-            $savedWord->save();
-
-            return response()->json([
-                'message' => 'Definition regenerated successfully',
-                'savedWord' => $savedWord->fresh(),
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Error regenerating definition: ' . $e->getMessage());
-
-            return response()->json([
-                'message' => 'Failed to regenerate definition',
-                'error' => 'Service unavailable'
-            ], 500);
-        }
-    }
 
     public function generateQuiz($words, $type = 'multiple_choice')
     {
