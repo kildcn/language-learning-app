@@ -21,50 +21,110 @@ class OpenAIService
         return $this->generateWithHuggingFace($prompt);
     }
 
-    public function generateWordDefinition($word, $context = null)
-    {
-        // Check if we have a fallback definition first
-        $fallbackDefinition = $this->getFallbackDefinition($word);
+    public function generateWordDefinition($word)
+{
+    // Check if we have a fallback definition first
+    $fallbackDefinition = $this->getFallbackDefinition($word);
 
-        // If no API key or word has a predefined fallback, just return that
-        if (empty($this->huggingfaceApiKey) || $fallbackDefinition) {
-            return [
-                'success' => true,
-                'definition' => $fallbackDefinition ?: "Definition not available for this word.",
-            ];
-        }
-
-        $prompt = "Provide a clear and concise definition in English for the German word '$word'";
-        if ($context) {
-            $prompt .= " as used in this context: '$context'";
-        }
-        $prompt .= ". Also include the gender if it's a noun (der/die/das), the verb form if applicable, and example usage in a simple sentence.";
-
-        return $this->generateWithHuggingFace($prompt);
+    // If no API key or word has a predefined fallback, just return that
+    if (empty($this->huggingfaceApiKey) || $fallbackDefinition) {
+        return [
+            'success' => true,
+            'definition' => $fallbackDefinition ?: "Definition not available for this word.",
+        ];
     }
+
+    // Simple prompt to get only the most common translation
+    $prompt = "Translate the German word '$word' into English. Reply with exactly one word and nothing else.";
+
+
+    return $this->generateWithHuggingFace($prompt);
+}
 
     public function generateQuiz($words, $type = 'multiple_choice')
     {
-        $wordsList = implode(', ', array_map(function ($word) {
-            return $word['word'];
-        }, $words));
-
-        $prompt = "Create a German " . ucfirst($type) . " quiz for the following words: $wordsList. ";
-
-        switch ($type) {
-            case 'multiple_choice':
-                $prompt .= "For each word, provide a question about its meaning in English, 4 options (A, B, C, D), and the correct answer.";
-                break;
-            case 'fill_blank':
-                $prompt .= "For each word, create a German sentence with a blank where the word should go, and the correct answer.";
-                break;
-            case 'matching':
-                $prompt .= "Create a list of German words and a shuffled list of English definitions to match.";
-                break;
+        // Extract just the words and their definitions for the prompt
+        $wordsList = [];
+        foreach ($words as $word) {
+            $wordsList[] = [
+                'word' => $word['word'],
+                'definition' => $word['definition'] ?? 'No definition available'
+            ];
         }
 
-        $prompt .= " Format the response as JSON.";
+        // Create a detailed prompt to get properly formatted quiz questions
+        $prompt = "Create a German vocabulary quiz in JSON format with the following requirements:\n\n";
 
+        if ($type === 'multiple_choice') {
+            $prompt .= "- For each word, create a question 'What does [WORD] mean?'\n";
+            $prompt .= "- Each question should have 4 answer options (labeled 0-3)\n";
+            $prompt .= "- One option must be the correct meaning (simple and concise, 1-3 words maximum)\n";
+            $prompt .= "- The other 3 options should be incorrect but plausible meanings (also 1-3 words each)\n";
+            $prompt .= "- Include the index of the correct answer (0-3)\n";
+            $prompt .= "- DO NOT include the original German word in any of the answer options\n";
+            $prompt .= "- Answer options should be short and consistent in style\n";
+        } elseif ($type === 'fill_blank') {
+            $prompt .= "- For each word, create a simple German sentence using that word\n";
+            $prompt .= "- Replace the word with '_____' in the sentence\n";
+            $prompt .= "- Include the correct word as the answer\n";
+        } elseif ($type === 'matching') {
+            $prompt .= "- Create two lists: German words and their English meanings\n";
+            $prompt .= "- Each meaning should be simple and concise (1-3 words)\n";
+            $prompt .= "- Include the correct matches\n";
+        }
+
+        $prompt .= "\nHere are the German words to include in the quiz:\n";
+        foreach ($wordsList as $word) {
+            $prompt .= "- {$word['word']}: {$word['definition']}\n";
+        }
+
+        $prompt .= "\nFormat the response as valid JSON according to this structure:\n";
+
+        if ($type === 'multiple_choice') {
+            $prompt .= <<<JSON
+{
+  "questions": [
+    {
+      "question": "What does 'German word' mean?",
+      "options": ["option1", "option2", "option3", "option4"],
+      "correctAnswer": 0,
+      "word_id": 0
+    },
+    ...
+  ]
+}
+JSON;
+        } elseif ($type === 'fill_blank') {
+            $prompt .= <<<JSON
+{
+  "questions": [
+    {
+      "sentence": "German sentence with _____.",
+      "correctAnswer": "German word",
+      "word_id": 0
+    },
+    ...
+  ]
+}
+JSON;
+        } elseif ($type === 'matching') {
+            $prompt .= <<<JSON
+{
+  "words": ["word1", "word2", "word3"],
+  "definitions": ["meaning1", "meaning2", "meaning3"],
+  "matches": [
+    {
+      "word": "word1",
+      "definition": "meaning1",
+      "word_id": 0
+    },
+    ...
+  ]
+}
+JSON;
+        }
+
+        // Make the API call
         $result = $this->generateWithHuggingFace($prompt);
 
         if ($result['success']) {
@@ -81,14 +141,19 @@ class OpenAIService
             try {
                 $quizData = json_decode($jsonString, true);
                 if (json_last_error() === JSON_ERROR_NONE) {
+                    // Update the word_id values to match the actual word IDs
+                    $quizData = $this->updateWordIds($quizData, $words, $type);
+
                     return [
                         'success' => true,
                         'quiz' => $quizData,
                     ];
                 } else {
                     // Fallback to a simple quiz structure if parsing fails
+                    Log::error('Failed to parse quiz JSON: ' . json_last_error_msg());
+                    Log::error('JSON content: ' . $jsonString);
                     return [
-                        'success' => true,
+                        'success' => true, // Still return success but with fallback
                         'quiz' => $this->createFallbackQuiz($words, $type),
                     ];
                 }
@@ -106,6 +171,32 @@ class OpenAIService
             'success' => true,
             'quiz' => $this->createFallbackQuiz($words, $type),
         ];
+    }
+
+    /**
+     * Update word IDs in the generated quiz to match the actual word IDs
+     */
+    private function updateWordIds($quizData, $words, $type)
+    {
+        if ($type === 'multiple_choice' || $type === 'fill_blank') {
+            if (isset($quizData['questions'])) {
+                foreach ($quizData['questions'] as $index => $question) {
+                    if (isset($words[$index]) && isset($words[$index]['id'])) {
+                        $quizData['questions'][$index]['word_id'] = $words[$index]['id'];
+                    }
+                }
+            }
+        } elseif ($type === 'matching') {
+            if (isset($quizData['matches'])) {
+                foreach ($quizData['matches'] as $index => $match) {
+                    if (isset($words[$index]) && isset($words[$index]['id'])) {
+                        $quizData['matches'][$index]['word_id'] = $words[$index]['id'];
+                    }
+                }
+            }
+        }
+
+        return $quizData;
     }
 
     private function generateWithHuggingFace($prompt)
@@ -128,7 +219,7 @@ class OpenAIService
             ])->post("https://api-inference.huggingface.co/models/{$model}", [
                 'inputs' => $prompt,
                 'parameters' => [
-                    'max_new_tokens' => 250,
+                    'max_new_tokens' => 500, // Increased for quiz generation
                     'temperature' => 0.7,
                     'return_full_text' => false,
                 ]
@@ -200,6 +291,30 @@ class OpenAIService
             return $this->getFallbackDefinition($word);
         }
 
+        // Check if this is a quiz generation request
+        if (strpos($prompt, 'Create a German vocabulary quiz') !== false) {
+            // Extract the quiz type
+            $type = 'multiple_choice';
+            if (strpos($prompt, 'matching') !== false) {
+                $type = 'matching';
+            } elseif (strpos($prompt, 'fill_blank') !== false) {
+                $type = 'fill_blank';
+            }
+
+            // Extract words from the prompt
+            preg_match_all('/- (.+?): (.+?)$/m', $prompt, $matches, PREG_SET_ORDER);
+            $words = [];
+            foreach ($matches as $index => $match) {
+                $words[] = [
+                    'id' => $index,
+                    'word' => $match[1],
+                    'definition' => $match[2]
+                ];
+            }
+
+            return json_encode($this->createFallbackQuiz($words, $type));
+        }
+
         // Default fallback response
         return "Es tut mir leid, ich konnte keine Antwort generieren. Bitte versuchen Sie es später noch einmal.";
     }
@@ -256,6 +371,11 @@ class OpenAIService
             'Arbeit' => "die Arbeit (plural: die Arbeiten) - work, job. Activity involving mental or physical effort done to achieve a purpose or result. Example: \"Ich gehe zur Arbeit.\" (I go to work.)",
             'Wasser' => "das Wasser (no common plural) - water. A transparent, odorless, tasteless liquid. Example: \"Ich trinke gerne Wasser.\" (I like to drink water.)",
             'Tag' => "der Tag (plural: die Tage) - day. A period of 24 hours. Example: \"Heute ist ein schöner Tag.\" (Today is a beautiful day.)",
+            'Hälfte' => "die Hälfte - half. One of two equal or corresponding parts into which something is or can be divided. Example: \"Ich nehme die Hälfte des Kuchens.\" (I'll take half of the cake.)",
+            'Tankstelle' => "die Tankstelle (plural: die Tankstellen) - gas station, petrol station. A place where fuel or gasoline is sold to refill vehicles. Example: \"Ich muss an der Tankstelle tanken.\" (I need to refuel at the gas station.)",
+            'Nachrichtenstelle' => "die Nachrichtenstelle - news office, information center. A place or facility where news and information is gathered and distributed. Example: \"Die Nachrichtenstelle berichtet über aktuelle Ereignisse.\" (The news office reports on current events.)",
+            'Abendessen' => "das Abendessen - dinner, evening meal. The main meal of the day, typically eaten in the evening. Example: \"Wir essen um 19 Uhr Abendessen.\" (We eat dinner at 7 PM.)",
+            'Möglichkeit' => "die Möglichkeit (plural: die Möglichkeiten) - possibility, opportunity, option. A chance for something to happen or be done. Example: \"Es gibt viele Möglichkeiten, Deutsch zu lernen.\" (There are many ways to learn German.)"
         ];
 
         return isset($definitions[$word]) ? $definitions[$word] : null;
@@ -263,134 +383,277 @@ class OpenAIService
 
     private function createFallbackQuiz($words, $type)
     {
-        $quiz = [];
-        $questions = [];
+        // Create a simple fallback quiz based on the type
+        if ($type === 'multiple_choice') {
+            return $this->createMultipleChoiceQuiz($words);
+        } elseif ($type === 'fill_blank') {
+            return $this->createFillBlankQuiz($words);
+        } elseif ($type === 'matching') {
+            return $this->createMatchingQuiz($words);
+        }
 
-        // Basic translations for common words if definition not available
-        $basicTranslations = [
-            'Haus' => 'house',
-            'gehen' => 'to go',
-            'Buch' => 'book',
-            'schön' => 'beautiful',
-            'Freund' => 'friend',
-            'trinken' => 'to drink',
-            'Zeit' => 'time',
-            'Katze' => 'cat',
-            'Mann' => 'man',
-            'Frau' => 'woman',
-            'Kind' => 'child',
-            'Auto' => 'car',
-            'Arbeit' => 'work',
-            'Wasser' => 'water',
-            'Tag' => 'day',
+        // Default to multiple choice
+        return $this->createMultipleChoiceQuiz($words);
+    }
+
+    private function createMultipleChoiceQuiz($words)
+    {
+        $questions = [];
+        $allTranslations = $this->getBasicTranslations();
+
+        foreach ($words as $index => $wordData) {
+            $word = $wordData['word'];
+            $translation = $this->getTranslation($word, $wordData['definition'] ?? '', $allTranslations);
+
+            // Create 3 incorrect options
+            $incorrectOptions = $this->getIncorrectOptions($translation, $allTranslations, 3);
+
+            // Add options in random order with correct answer at random position
+            $options = $incorrectOptions;
+            $correctIndex = rand(0, 3);
+            array_splice($options, $correctIndex, 0, [$translation]);
+
+            $questions[] = [
+                'question' => "What does '$word' mean?",
+                'options' => $options,
+                'correctAnswer' => $correctIndex,
+                'word_id' => $wordData['id'] ?? $index,
+            ];
+        }
+
+        return [
+            'questions' => $questions
         ];
+    }
+
+    private function createFillBlankQuiz($words)
+    {
+        $questions = [];
 
         foreach ($words as $index => $wordData) {
             $word = $wordData['word'];
 
-            // Try to get a proper definition
-            $definition = $wordData['definition'] ?? null;
+            // Create a simple sentence with the word
+            $sentence = $this->createSentence($word);
 
-            // Extract basic translation from definition or use fallback
-            $translation = $basicTranslations[$word] ?? 'translation';
-
-            if ($definition) {
-                // Try to extract translation from definition
-                preg_match('/- ([^\.]+)\./', $definition, $matches);
-                if (!empty($matches[1])) {
-                    $translation = trim($matches[1]);
-                }
-            }
-
-            switch ($type) {
-                case 'multiple_choice':
-                    // Create random wrong options that are different from the right one
-                    $wrongOptions = array_filter(array_values($basicTranslations), function($t) use ($translation) {
-                        return $t !== $translation;
-                    });
-
-                    // Shuffle and take 3
-                    shuffle($wrongOptions);
-                    $wrongOptions = array_slice($wrongOptions, 0, 3);
-
-                    // Create options array with right answer at random position
-                    $options = [
-                        'A' => $wrongOptions[0] ?? 'option A',
-                        'B' => $wrongOptions[1] ?? 'option B',
-                        'C' => $wrongOptions[2] ?? 'option C',
-                        'D' => $translation
-                    ];
-
-                    // Shuffle options to randomize correct answer position
-                    $keys = array_keys($options);
-                    $values = array_values($options);
-                    shuffle($values);
-                    $shuffledOptions = array_combine($keys, $values);
-
-                    // Find the key for the correct answer
-                    $correctKey = array_search($translation, $shuffledOptions);
-
-                    $questions[] = [
-                        'question' => "What does '$word' mean?",
-                        'options' => $shuffledOptions,
-                        'correctAnswer' => $correctKey
-                    ];
-                    break;
-
-                case 'fill_blank':
-                    // Create a simple sentence with the word
-                    $sentence = '';
-
-                    // Basic sentence templates based on likely word type
-                    if (substr($word, 0, 3) === 'der' || substr($word, 0, 3) === 'die' || substr($word, 0, 3) === 'das') {
-                        $sentence = "_____ ist sehr wichtig."; // The [noun] is very important
-                    } else if (substr($translation, 0, 3) === 'to ') {
-                        $sentence = "Ich möchte _____."; // I want to [verb]
-                    } else {
-                        $sentence = "Das ist _____."; // This is [adjective/noun]
-                    }
-
-                    $questions[] = [
-                        'sentence' => $sentence,
-                        'correctAnswer' => $word
-                    ];
-                    break;
-
-                case 'matching':
-                    // For matching, we'll just create a simple array of pairs
-                    if ($index === 0) {
-                        $questions = [
-                            'words' => [],
-                            'definitions' => [],
-                            'matches' => []
-                        ];
-                    }
-
-                    $questions['words'][] = $word;
-                    $questions['definitions'][] = $translation;
-                    $questions['matches'][] = [
-                        'word' => $word,
-                        'definition' => $translation
-                    ];
-                    break;
-            }
+            $questions[] = [
+                'sentence' => str_replace($word, '_____', $sentence),
+                'correctAnswer' => $word,
+                'word_id' => $wordData['id'] ?? $index,
+            ];
         }
 
-        // For matching type, we already structured the quiz above
-        if ($type === 'matching') {
-            return $questions;
-        }
-
-        // For other types, structure the quiz here
-        $quiz = [
-            'questions' => $questions,
-            'type' => $type,
-            'title' => 'German Vocabulary Quiz'
+        return [
+            'questions' => $questions
         ];
-
-        return $quiz;
     }
 
+    private function createMatchingQuiz($words)
+    {
+        $germanWords = [];
+        $definitions = [];
+        $matches = [];
+
+        foreach ($words as $index => $wordData) {
+            $word = $wordData['word'];
+            $translation = $this->getTranslation($word, $wordData['definition'] ?? '', $this->getBasicTranslations());
+
+            $germanWords[] = $word;
+            $definitions[] = $translation;
+
+            $matches[] = [
+                'word' => $word,
+                'definition' => $translation,
+                'word_id' => $wordData['id'] ?? $index,
+            ];
+        }
+
+        return [
+            'words' => $germanWords,
+            'definitions' => $definitions,
+            'matches' => $matches
+        ];
+    }
+
+    /**
+     * Create a simple German sentence using the given word
+     */
+    private function createSentence($word)
+    {
+        // Simple sentence templates based on common word types
+        $templates = [
+            // For nouns
+            "Mein %s ist sehr schön.",                 // My [noun] is very beautiful.
+            "Das %s ist groß.",                        // The [noun] is big.
+            "Ich habe ein neues %s gekauft.",          // I bought a new [noun].
+            "Das %s steht auf dem Tisch.",             // The [noun] is on the table.
+
+            // For verbs (assuming infinitive form)
+            "Ich %s jeden Tag.",                       // I [verb] every day.
+            "Wir %s gerne zusammen.",                  // We like to [verb] together.
+            "Sie %s sehr gut.",                        // She [verb]s very well.
+
+            // For adjectives
+            "Das Haus ist %s.",                        // The house is [adjective].
+            "Mein Auto ist sehr %s.",                  // My car is very [adjective].
+
+            // Generic templates that work for most word types
+            "Ich mag %s.",                             // I like [word].
+            "Hier ist ein %s.",                        // Here is a [word].
+        ];
+
+        // If we can deduce the word type from the definition, we could use more specific templates
+        // For now, just pick a random template
+        $template = $templates[array_rand($templates)];
+
+        return sprintf($template, $word);
+    }
+
+    /**
+     * Get translations for basic German words
+     */
+    private function getBasicTranslations()
+    {
+        // Common translations to use for quiz generation
+        return [
+            'Haus' => 'house',
+            'Buch' => 'book',
+            'Auto' => 'car',
+            'Mann' => 'man',
+            'Frau' => 'woman',
+            'Kind' => 'child',
+            'Hund' => 'dog',
+            'Katze' => 'cat',
+            'Stadt' => 'city',
+            'Land' => 'country',
+            'Baum' => 'tree',
+            'Blume' => 'flower',
+            'Wasser' => 'water',
+            'Brot' => 'bread',
+            'Milch' => 'milk',
+            'groß' => 'big',
+            'klein' => 'small',
+            'gut' => 'good',
+            'schlecht' => 'bad',
+            'schön' => 'beautiful',
+            'hässlich' => 'ugly',
+            'alt' => 'old',
+            'neu' => 'new',
+            'gehen' => 'to go',
+            'kommen' => 'to come',
+            'essen' => 'to eat',
+            'trinken' => 'to drink',
+            'schlafen' => 'to sleep',
+            'arbeiten' => 'to work',
+            'spielen' => 'to play',
+            'Zeit' => 'time',
+            'Tag' => 'day',
+            'Nacht' => 'night',
+            'Freund' => 'friend',
+            'Familie' => 'family',
+            'Arbeit' => 'work',
+            'Schule' => 'school',
+            'Universität' => 'university',
+            'Geld' => 'money',
+            'Telefon' => 'telephone',
+            'Computer' => 'computer',
+            'Straße' => 'street',
+            'Haus' => 'house',
+            'Wohnung' => 'apartment',
+            'Tisch' => 'table',
+            'Stuhl' => 'chair',
+            'Tür' => 'door',
+            'Fenster' => 'window',
+            'Bett' => 'bed',
+            'Musik' => 'music',
+            'Film' => 'movie',
+            'Buch' => 'book',
+            'Zeitung' => 'newspaper',
+        ];
+    }
+
+    /**
+     * Get a translation for a German word
+     */
+    private function getTranslation($word, $definition, $allTranslations)
+    {
+        // First, check if we have a direct translation in our basic list
+        if (isset($allTranslations[$word])) {
+            return $allTranslations[$word];
+        }
+
+        // Try to extract a translation from the definition
+        if (!empty($definition)) {
+            // Look for patterns like "- word," or "- word." in definitions
+            if (preg_match('/- ([^,\.]+)/', $definition, $matches)) {
+                return trim($matches[1]);
+            }
+
+            // If there's a dash followed by text, that's likely the translation
+            if (preg_match('/- ([^\.]+)\./', $definition, $matches)) {
+                // Take just the first few words for brevity
+                $parts = explode(' ', trim($matches[1]));
+                return implode(' ', array_slice($parts, 0, 3));
+            }
+        }
+
+        // If all else fails, return a placeholder
+        return "meaning of $word";
+    }
+
+    /**
+     * Generate incorrect but plausible options for multiple choice
+     */
+    private function getIncorrectOptions($correctTranslation, $allTranslations, $count)
+    {
+        $translations = array_values($allTranslations);
+
+        // Remove the correct answer from the pool of possible options
+        $translations = array_filter($translations, function($item) use ($correctTranslation) {
+            return $item !== $correctTranslation;
+        });
+
+        // Shuffle and take the requested number of options
+        shuffle($translations);
+        $incorrectOptions = array_slice($translations, 0, $count);
+
+        // If we don't have enough options, generate some generic ones
+        while (count($incorrectOptions) < $count) {
+            $generic = $this->getGenericIncorrectOption($correctTranslation, $incorrectOptions);
+            $incorrectOptions[] = $generic;
+        }
+
+        return $incorrectOptions;
+    }
+
+    /**
+     * Generate a generic incorrect option that's not already in the list
+     */
+    private function getGenericIncorrectOption($correctTranslation, $existingOptions)
+    {
+        $genericOptions = [
+            'object', 'item', 'thing', 'person', 'place', 'action',
+            'concept', 'feeling', 'activity', 'location', 'tool',
+            'vehicle', 'furniture', 'food', 'drink', 'animal',
+            'clothing', 'building', 'plant', 'body part', 'profession'
+        ];
+
+        // Shuffle and try to find one that's not already used
+        shuffle($genericOptions);
+
+        foreach ($genericOptions as $option) {
+            if ($option !== $correctTranslation && !in_array($option, $existingOptions)) {
+                return $option;
+            }
+        }
+
+        // If all generic options are used (unlikely), add a number to make it unique
+        return $genericOptions[0] . ' ' . rand(1, 10);
+    }
+
+    /**
+     * Build a prompt for paragraph generation
+     */
     private function buildPrompt($level, $topic = null)
     {
         $levelDescription = $this->getLevelDescription($level);
@@ -412,6 +675,9 @@ class OpenAIService
         return $prompt;
     }
 
+    /**
+     * Get description for a German proficiency level
+     */
     private function getLevelDescription($level)
     {
         $descriptions = [
@@ -423,4 +689,4 @@ class OpenAIService
 
         return $descriptions[$level] ?? 'intermediate level';
     }
-}
+  }
