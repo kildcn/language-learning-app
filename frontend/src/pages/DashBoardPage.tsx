@@ -65,6 +65,7 @@ const DashboardPage: React.FC = () => {
         // Fetch quiz stats directly from the backend
         try {
           const quizStatsRes = await quizService.getStats();
+          console.log("Quiz Stats Response:", quizStatsRes.data);
           setQuizStats(quizStatsRes.data);
 
           // Determine user's current German level based on activity
@@ -74,17 +75,39 @@ const DashboardPage: React.FC = () => {
           // Simple algorithm: more words saved and better quiz scores = higher level
           const wordCount = wordsRes.data.total || 0;
           const avgScore = quizStatsRes.data.avgScore || 0;
+          const totalAttempts = quizStatsRes.data.totalAttempts || 0;
 
-          if (wordCount > 100 && avgScore > 80) {
-            currentLevel = 'C1';
-            levelProgress = 75;
-          } else if (wordCount > 50 && avgScore > 70) {
-            currentLevel = 'B2';
-            levelProgress = 60;
-          } else if (wordCount > 20 && avgScore > 60) {
+          console.log("Word Count:", wordCount);
+          console.log("Average Score:", avgScore);
+          console.log("Total Quiz Attempts:", totalAttempts);
+
+          // Make progress more responsive - adjust thresholds
+          if (wordCount >= 15 || avgScore >= 80) {
             currentLevel = 'B1';
             levelProgress = 40;
           }
+
+          if (wordCount >= 30 || avgScore >= 85) {
+            currentLevel = 'B2';
+            levelProgress = 60;
+          }
+
+          if (wordCount >= 50 || avgScore >= 90) {
+            currentLevel = 'C1';
+            levelProgress = 75;
+          }
+
+          // If they've completed at least one quiz with 100% score, guarantee minimum progress
+          if (totalAttempts > 0 && avgScore >= 95) {
+            // Ensure at least B1 level for perfect scores
+            if (currentLevel === 'A2') {
+              currentLevel = 'B1';
+              levelProgress = 40;
+            }
+          }
+
+          console.log("Calculated Level:", currentLevel);
+          console.log("Calculated Progress:", levelProgress);
 
           setStats({
             paragraphs: paragraphsRes.data.total || 0,
@@ -108,6 +131,22 @@ const DashboardPage: React.FC = () => {
 
     fetchDashboardData();
   }, []);
+
+  // Modified LinearProgress component implementation
+  // Replace the existing LinearProgress in the render with this:
+  <LinearProgress
+    variant="determinate"
+    value={stats.levelProgress || 0}
+    sx={{
+      height: 10,
+      width: '100%',
+      borderRadius: 5,
+      '& .MuiLinearProgress-bar': {
+        backgroundColor: 'primary.main',
+        borderRadius: 5
+      }
+    }}
+  />
 
   // Fallback method to calculate quiz stats if the API endpoint fails
   const calculateQuizStats = (quizzes: any[]) => {
@@ -181,11 +220,19 @@ const DashboardPage: React.FC = () => {
                   Your German Level: {stats.currentLevel} - {levelDescriptions[stats.currentLevel as keyof typeof levelDescriptions]}
                 </Typography>
                 <Box display="flex" alignItems="center" width="100%" maxWidth={600}>
-                  <LinearProgress
-                    variant="determinate"
-                    value={stats.levelProgress}
-                    sx={{ height: 10, width: '100%', borderRadius: 5 }}
-                  />
+                <LinearProgress
+  variant="determinate"
+  value={stats.levelProgress}
+  sx={{
+    height: 10,
+    width: '100%',
+    borderRadius: 5,
+    '& .MuiLinearProgress-bar': {
+      backgroundColor: 'primary.main',
+      transition: 'transform 0.4s linear'
+    }
+  }}
+/>
                   <Tooltip title="Continue learning to advance to the next level">
                     <InfoOutlinedIcon sx={{ ml: 1, color: 'text.secondary' }} />
                   </Tooltip>

@@ -15,6 +15,7 @@ class SavedWord extends Model
         'definition',
         'user_id',
         'paragraph_id',
+        'category',
     ];
 
     public function user()

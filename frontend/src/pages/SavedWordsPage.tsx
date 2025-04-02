@@ -1,10 +1,13 @@
+// src/pages/SavedWordsPage.tsx - Updated with category filtering
 import React, { useState, useEffect } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
   Box, Typography, Paper, List, ListItem, ListItemText,
   IconButton, Divider, CircularProgress, TextField,
   Dialog, DialogTitle, DialogContent, DialogActions, Button,
-  Grid, Card, CardContent, CardActions, Chip, Tooltip, InputAdornment
+  Grid, Card, CardContent, CardActions, Chip, Tooltip, InputAdornment,
+  Tab, Tabs, Accordion, AccordionSummary, AccordionDetails,
+  Select, MenuItem, FormControl, SelectChangeEvent
 } from '@mui/material';
 import {
   Delete as DeleteIcon,
@@ -12,9 +15,12 @@ import {
   QuizOutlined as QuizIcon,
   Search as SearchIcon,
   VolumeUp as VolumeUpIcon,
-  FilterAlt as FilterIcon
+  FilterAlt as FilterIcon,
+  ExpandMore as ExpandMoreIcon,
+  Category as CategoryIcon
 } from '@mui/icons-material';
 import { savedWordService } from '../services/api';
+import CategoryWordGenerator from '../components/vocabulary/CategoryWordGenerator';
 
 // Define word difficulty levels by letter counts
 const getWordDifficulty = (word: string): 'easy' | 'medium' | 'hard' => {
@@ -31,11 +37,31 @@ const difficultyColors = {
   hard: 'error'
 };
 
-// Word categories for German
-const germanCategories = [
-  'Noun', 'Verb', 'Adjective', 'Adverb', 'Preposition',
-  'Conjunction', 'Article', 'Pronoun'
-];
+interface TabPanelProps {
+  children?: React.ReactNode;
+  index: number;
+  value: number;
+}
+
+function TabPanel(props: TabPanelProps) {
+  const { children, value, index, ...other } = props;
+
+  return (
+    <div
+      role="tabpanel"
+      hidden={value !== index}
+      id={`words-tabpanel-${index}`}
+      aria-labelledby={`words-tab-${index}`}
+      {...other}
+    >
+      {value === index && (
+        <Box sx={{ p: 2 }}>
+          {children}
+        </Box>
+      )}
+    </div>
+  );
+}
 
 const SavedWordsPage: React.FC = () => {
   const [words, setWords] = useState<any[]>([]);
@@ -46,6 +72,12 @@ const SavedWordsPage: React.FC = () => {
   const [regenerating, setRegenerating] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [tabValue, setTabValue] = useState(0);
+  const [categories, setCategories] = useState<{[key: string]: any[]}>({});
+  const [expandedCategories, setExpandedCategories] = useState<string[]>([]);
+  const refreshWordList = async () => {
+    await fetchWords();
+  };
 
   useEffect(() => {
     fetchWords();
@@ -54,13 +86,48 @@ const SavedWordsPage: React.FC = () => {
   const fetchWords = async () => {
     setLoading(true);
     try {
-      const response = await savedWordService.getAll();
-      setWords(response.data.data || []);
+      let allWords: any[] = [];
+      let currentPage = 1;
+      let totalPages = 1;
+
+      do {
+        const response = await savedWordService.getAll({ page: currentPage });
+        const { data, last_page } = response.data;
+
+        allWords = [...allWords, ...data];
+        totalPages = last_page;
+        currentPage++;
+      } while (currentPage <= totalPages);
+
+      setWords(allWords);
+
+      // Organize words by category
+      const categorizedWords: { [key: string]: any[] } = {
+        Uncategorized: [],
+      };
+
+      allWords.forEach((word: any) => {
+        const category = word.category || "Uncategorized";
+        if (!categorizedWords[category]) {
+          categorizedWords[category] = [];
+        }
+        categorizedWords[category].push(word);
+      });
+
+      // Set initial expanded categories (open the first few)
+      const initialExpanded = Object.keys(categorizedWords).slice(0, 3);
+      setExpandedCategories(initialExpanded);
+
+      setCategories(categorizedWords);
     } catch (error) {
-      console.error('Error fetching saved words:', error);
+      console.error("Error fetching saved words:", error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    setTabValue(newValue);
   };
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -91,6 +158,16 @@ const SavedWordsPage: React.FC = () => {
       setWords(words.map(w =>
         w.id === selectedWord.id ? response.data.savedWord : w
       ));
+
+      // Also update the word in categories
+      const updatedCategories = {...categories};
+      Object.keys(updatedCategories).forEach(category => {
+        updatedCategories[category] = updatedCategories[category].map(w =>
+          w.id === selectedWord.id ? response.data.savedWord : w
+        );
+      });
+      setCategories(updatedCategories);
+
       setSelectedWord(response.data.savedWord);
     } catch (error) {
       console.error('Error regenerating definition:', error);
@@ -104,6 +181,14 @@ const SavedWordsPage: React.FC = () => {
     try {
       await savedWordService.delete(id);
       setWords(words.filter(w => w.id !== id));
+
+      // Also remove the word from categories
+      const updatedCategories = {...categories};
+      Object.keys(updatedCategories).forEach(category => {
+        updatedCategories[category] = updatedCategories[category].filter(w => w.id !== id);
+      });
+      setCategories(updatedCategories);
+
       handleCloseDialog();
     } catch (error) {
       console.error('Error deleting word:', error);
@@ -112,10 +197,53 @@ const SavedWordsPage: React.FC = () => {
     }
   };
 
+  const handleUpdateCategory = async (wordId: number, newCategory: string) => {
+    try {
+      await savedWordService.update(wordId, { category: newCategory });
+
+      // Update the word in the list and categories
+      const updatedWords = words.map(w => {
+        if (w.id === wordId) {
+          return {...w, category: newCategory};
+        }
+        return w;
+      });
+      setWords(updatedWords);
+
+      // Move the word to the correct category
+      const updatedCategories = {...categories};
+
+      // Remove from previous categories
+      Object.keys(updatedCategories).forEach(category => {
+        updatedCategories[category] = updatedCategories[category].filter(w => w.id !== wordId);
+      });
+
+      // Add to new category
+      const wordToMove = words.find(w => w.id === wordId);
+      if (wordToMove) {
+        const targetCategory = newCategory || 'Uncategorized';
+        if (!updatedCategories[targetCategory]) {
+          updatedCategories[targetCategory] = [];
+        }
+        updatedCategories[targetCategory].push({...wordToMove, category: newCategory});
+      }
+
+      setCategories(updatedCategories);
+
+      if (selectedWord && selectedWord.id === wordId) {
+        setSelectedWord({...selectedWord, category: newCategory});
+      }
+    } catch (error) {
+      console.error('Error updating word category:', error);
+    }
+  };
+
   // Function to speak the German word
   const speakGerman = (text: string) => {
     if ('speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance(text);
+      // Remove articles (der, die, das) if present for better pronunciation
+      const wordToSpeak = text.replace(/^(der|die|das) /, '');
+      const utterance = new SpeechSynthesisUtterance(wordToSpeak);
       utterance.lang = 'de-DE';
       utterance.rate = 0.9;
       window.speechSynthesis.speak(utterance);
@@ -147,22 +275,44 @@ const SavedWordsPage: React.FC = () => {
     return '';
   };
 
+  const toggleCategoryExpansion = (category: string) => {
+    if (expandedCategories.includes(category)) {
+      setExpandedCategories(expandedCategories.filter(c => c !== category));
+    } else {
+      setExpandedCategories([...expandedCategories, category]);
+    }
+  };
+
   const filteredWords = words.filter(word => {
     // Search term filter
     const matchesSearch = word.word.toLowerCase().includes(searchTerm);
 
-    // Category filter
-    const category = extractCategory(word.definition);
-    const matchesCategory = !selectedCategory || category === selectedCategory;
+    // Category filter (only in All tab)
+    const matchesCategory = !selectedCategory || word.category === selectedCategory;
 
     return matchesSearch && matchesCategory;
   });
+
+  const getAvailableCategories = () => {
+    const allCategories = Object.keys(categories);
+
+    // Add "Uncategorized" if it doesn't exist but there are uncategorized words
+    if (!allCategories.includes('Uncategorized') &&
+        words.some(word => !word.category)) {
+      allCategories.push('Uncategorized');
+    }
+
+    return allCategories;
+  };
 
   return (
     <Box>
       <Typography variant="h4" gutterBottom>
         My German Vocabulary
       </Typography>
+
+      {/* Word Generator */}
+      <CategoryWordGenerator />
 
       <Paper sx={{ p: 2, mb: 3 }}>
         <Box display="flex" alignItems="center" flexWrap="wrap">
@@ -186,23 +336,25 @@ const SavedWordsPage: React.FC = () => {
           </Button>
         </Box>
 
-        <Box sx={{ mt: 2 }}>
-          <Typography variant="subtitle2" gutterBottom display="flex" alignItems="center">
-            <FilterIcon fontSize="small" sx={{ mr: 1 }} /> Filter by Word Type:
-          </Typography>
-          <Box display="flex" flexWrap="wrap" gap={1}>
-            {germanCategories.map(category => (
-              <Chip
-                key={category}
-                label={category}
-                onClick={() => handleCategoryChange(category)}
-                color={selectedCategory === category ? "primary" : "default"}
-                variant={selectedCategory === category ? "filled" : "outlined"}
-                clickable
-              />
-            ))}
-          </Box>
-        </Box>
+        <Tabs
+          value={tabValue}
+          onChange={handleTabChange}
+          aria-label="vocabulary view tabs"
+          sx={{ mt: 2, borderBottom: 1, borderColor: 'divider' }}
+        >
+          <Tab
+            label="All Words"
+            id="words-tab-0"
+            aria-controls="words-tabpanel-0"
+          />
+          <Tab
+            label="By Category"
+            id="words-tab-1"
+            aria-controls="words-tabpanel-1"
+            icon={<CategoryIcon />}
+            iconPosition="start"
+          />
+        </Tabs>
       </Paper>
 
       {loading ? (
@@ -211,86 +363,212 @@ const SavedWordsPage: React.FC = () => {
         </Box>
       ) : (
         <Box>
-          {filteredWords.length > 0 ? (
-            <Grid container spacing={2}>
-              {filteredWords.map((word) => {
-                const difficulty = getWordDifficulty(word.word);
-                const category = extractCategory(word.definition);
+          <TabPanel value={tabValue} index={0}>
+            {/* Filter chips for categories in All Words view */}
+            <Box sx={{ mt: 2, mb: 2 }}>
+              <Typography variant="subtitle2" gutterBottom display="flex" alignItems="center">
+                <FilterIcon fontSize="small" sx={{ mr: 1 }} /> Filter by Category:
+              </Typography>
+              <Box display="flex" flexWrap="wrap" gap={1}>
+                {getAvailableCategories().map(category => (
+                  <Chip
+                    key={category}
+                    label={category}
+                    onClick={() => handleCategoryChange(category)}
+                    color={selectedCategory === category ? "primary" : "default"}
+                    variant={selectedCategory === category ? "filled" : "outlined"}
+                    clickable
+                  />
+                ))}
+              </Box>
+            </Box>
 
-                return (
-                <Grid item xs={12} sm={6} md={4} key={word.id}>
-                  <Card>
-                    <CardContent sx={{ pb: 1 }}>
-                      <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
-                        <Typography variant="h6">
-                          {word.word}
-                        </Typography>
-                        <IconButton
-                          size="small"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            speakGerman(word.word);
-                          }}
-                          color="primary"
-                        >
-                          <VolumeUpIcon />
-                        </IconButton>
-                      </Box>
+            {/* All Words Grid View */}
+            {filteredWords.length > 0 ? (
+              <Grid container spacing={2}>
+                {filteredWords.map((word) => {
+                  const difficulty = getWordDifficulty(word.word);
+                  const wordCategory = word.category || 'Uncategorized';
+                  const wordType = extractCategory(word.definition);
 
-                      <Box display="flex" flexWrap="wrap" gap={0.5} mb={1}>
-                        <Chip
-                          label={difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}
-                          color={difficultyColors[difficulty] as any}
-                          size="small"
-                        />
-                        {category && (
+                  return (
+                  <Grid item xs={12} sm={6} md={4} key={word.id}>
+                    <Card>
+                      <CardContent sx={{ pb: 1 }}>
+                        <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
+                          <Typography variant="h6">
+                            {word.word}
+                          </Typography>
+                          <IconButton
+                            size="small"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              speakGerman(word.word);
+                            }}
+                            color="primary"
+                          >
+                            <VolumeUpIcon />
+                          </IconButton>
+                        </Box>
+
+                        <Box display="flex" flexWrap="wrap" gap={0.5} mb={1}>
                           <Chip
-                            label={category}
-                            variant="outlined"
+                            label={difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}
+                            color={difficultyColors[difficulty] as any}
                             size="small"
                           />
-                        )}
-                      </Box>
-
-                      <Typography variant="body2" color="textSecondary" noWrap>
-                        {word.definition || 'No definition available'}
-                      </Typography>
-                    </CardContent>
-                    <CardActions>
-                      <Button
-                        size="small"
-                        onClick={() => handleWordClick(word)}
-                      >
-                        View Details
-                      </Button>
-                      {word.paragraph && (
-                        <Tooltip title="Source German text">
+                          {wordType && (
+                            <Chip
+                              label={wordType}
+                              variant="outlined"
+                              size="small"
+                            />
+                          )}
                           <Chip
-                            label={`Level ${word.paragraph.level}`}
-                            size="small"
+                            label={wordCategory}
                             color="primary"
                             variant="outlined"
-                            component={RouterLink}
-                            to={`/paragraphs/${word.paragraph.id}`}
-                            clickable
-                            sx={{ ml: 'auto' }}
+                            size="small"
                           />
-                        </Tooltip>
-                      )}
-                    </CardActions>
-                  </Card>
-                </Grid>
-              )})}
-            </Grid>
-          ) : (
-            <Paper sx={{ p: 3, textAlign: 'center' }}>
-              <Typography variant="body1" color="textSecondary">
-                {searchTerm || selectedCategory ?
-                  'No words match your search or filter criteria.' :
-                  'No saved words yet. Start reading German texts to save words!'}
-              </Typography>
-            </Paper>
-          )}
+                        </Box>
+
+                        <Typography variant="body2" color="textSecondary" noWrap>
+                          {word.definition || 'No definition available'}
+                        </Typography>
+                      </CardContent>
+                      <CardActions>
+                        <Button
+                          size="small"
+                          onClick={() => handleWordClick(word)}
+                        >
+                          View Details
+                        </Button>
+                        {word.paragraph && (
+                          <Tooltip title="Source German text">
+                            <Chip
+                              label={`Level ${word.paragraph.level}`}
+                              size="small"
+                              color="primary"
+                              variant="outlined"
+                              component={RouterLink}
+                              to={`/paragraphs/${word.paragraph.id}`}
+                              clickable
+                              sx={{ ml: 'auto' }}
+                            />
+                          </Tooltip>
+                        )}
+                      </CardActions>
+                    </Card>
+                  </Grid>
+                )})}
+              </Grid>
+            ) : (
+              <Paper sx={{ p: 3, textAlign: 'center' }}>
+                <Typography variant="body1" color="textSecondary">
+                  {searchTerm || selectedCategory ?
+                    'No words match your search or filter criteria.' :
+                    'No saved words yet. Start reading German texts to save words!'}
+                </Typography>
+              </Paper>
+            )}
+          </TabPanel>
+
+          <TabPanel value={tabValue} index={1}>
+            {/* Categorized Words View */}
+            {Object.keys(categories).length > 0 ? (
+              <Box>
+                {Object.entries(categories)
+                  .sort(([catA], [catB]) => catA === 'Uncategorized' ? 1 : catB === 'Uncategorized' ? -1 : catA.localeCompare(catB))
+                  .map(([category, categoryWords]) => (
+                    categoryWords.length > 0 && (
+                      <Accordion
+                        key={category}
+                        expanded={expandedCategories.includes(category)}
+                        onChange={() => toggleCategoryExpansion(category)}
+                        sx={{ mb: 2 }}
+                      >
+                        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                          <Box display="flex" alignItems="center" justifyContent="space-between" width="100%">
+                            <Typography variant="h6">{category}</Typography>
+                            <Chip
+                              label={`${categoryWords.length} words`}
+                              size="small"
+                              color="primary"
+                              sx={{ ml: 2 }}
+                            />
+                          </Box>
+                        </AccordionSummary>
+                        <AccordionDetails>
+                          <Grid container spacing={2}>
+                            {categoryWords.map((word) => {
+                              const difficulty = getWordDifficulty(word.word);
+                              const wordType = extractCategory(word.definition);
+
+                              return (
+                                <Grid item xs={12} sm={6} md={4} key={word.id}>
+                                  <Card>
+                                    <CardContent sx={{ pb: 1 }}>
+                                      <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
+                                        <Typography variant="h6">
+                                          {word.word}
+                                        </Typography>
+                                        <IconButton
+                                          size="small"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            speakGerman(word.word);
+                                          }}
+                                          color="primary"
+                                        >
+                                          <VolumeUpIcon />
+                                        </IconButton>
+                                      </Box>
+
+                                      <Box display="flex" flexWrap="wrap" gap={0.5} mb={1}>
+                                        <Chip
+                                          label={difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}
+                                          color={difficultyColors[difficulty] as any}
+                                          size="small"
+                                        />
+                                        {wordType && (
+                                          <Chip
+                                            label={wordType}
+                                            variant="outlined"
+                                            size="small"
+                                          />
+                                        )}
+                                      </Box>
+
+                                      <Typography variant="body2" color="textSecondary" noWrap>
+                                        {word.definition || 'No definition available'}
+                                      </Typography>
+                                    </CardContent>
+                                    <CardActions>
+                                      <Button
+                                        size="small"
+                                        onClick={() => handleWordClick(word)}
+                                      >
+                                        View Details
+                                      </Button>
+                                    </CardActions>
+                                  </Card>
+                                </Grid>
+                              );
+                            })}
+                          </Grid>
+                        </AccordionDetails>
+                      </Accordion>
+                    )
+                  ))}
+              </Box>
+            ) : (
+              <Paper sx={{ p: 3, textAlign: 'center' }}>
+                <Typography variant="body1" color="textSecondary">
+                  No saved words yet. Start reading German texts to save words!
+                </Typography>
+              </Paper>
+            )}
+          </TabPanel>
         </Box>
       )}
 
@@ -320,6 +598,28 @@ const SavedWordsPage: React.FC = () => {
             <Typography variant="body1" paragraph>
               {selectedWord.definition || 'No definition available'}
             </Typography>
+
+            <Typography variant="subtitle1" gutterBottom>
+              Category:
+            </Typography>
+            <Box sx={{ mb: 2 }}>
+            <FormControl fullWidth size="small">
+  <Select
+    native
+    value={selectedWord.category || ''}
+    onChange={(e: SelectChangeEvent) => handleUpdateCategory(selectedWord.id, e.target.value)}
+    fullWidth
+    size="small"
+  >
+    <option value="">Uncategorized</option>
+    {getAvailableCategories()
+      .filter(cat => cat !== 'Uncategorized')
+      .map(category => (
+        <option key={category} value={category}>{category}</option>
+      ))}
+  </Select>
+</FormControl>
+            </Box>
 
             {selectedWord.context && (
               <>

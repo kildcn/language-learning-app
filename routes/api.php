@@ -1,5 +1,4 @@
 <?php
-// routes/api.php
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\ParagraphController;
 use App\Http\Controllers\QuizController;
@@ -28,10 +27,13 @@ Route::middleware('auth:sanctum')->group(function () {
     // Saved Words
     Route::apiResource('saved-words', SavedWordController::class);
     Route::post('/saved-words/{savedWord}/regenerate-definition', [SavedWordController::class, 'regenerateDefinition']);
+    Route::get('/vocabulary/categories', [SavedWordController::class, 'getCategories']);
+    Route::get('/vocabulary/generate', [SavedWordController::class, 'generateCategoryWords']);
+    Route::post('/vocabulary/bulk-save', [SavedWordController::class, 'bulkSave']);
 
     // Quizzes
     Route::get('/quizzes/stats', [QuizController::class, 'stats']);
-Route::apiResource('quizzes', QuizController::class);
-Route::post('/quizzes/{quiz}/attempt', [QuizController::class, 'submitAttempt']);
-Route::get('/quizzes/{quiz}/attempts', [QuizController::class, 'attempts']);
+    Route::apiResource('quizzes', QuizController::class);
+    Route::post('/quizzes/{quiz}/attempt', [QuizController::class, 'submitAttempt']);
+    Route::get('/quizzes/{quiz}/attempts', [QuizController::class, 'attempts']);
 });

@@ -1,4 +1,4 @@
-// src/services/api.ts
+// src/services/api.ts - Add new vocabulary service methods
 import { api } from '../contexts/AuthContext';
 import { User, Paragraph, SavedWord, Quiz, QuizAttempt, PaginatedResponse } from '../types';
 
@@ -61,16 +61,26 @@ interface CreateSavedWordData {
   word: string;
   context?: string;
   paragraph_id?: number;
+  category?: string;
 }
 
 interface UpdateSavedWordData {
   context?: string;
   definition?: string;
+  category?: string;
+}
+
+interface BulkSaveWordsData {
+  words: Array<{
+    word: string;
+    definition?: string;
+  }>;
+  category?: string;
 }
 
 export const savedWordService = {
-  getAll: () =>
-    api.get<PaginatedResponse<SavedWord>>('/saved-words'),
+  getAll: (params?: any) =>
+    api.get<PaginatedResponse<SavedWord>>('/saved-words', { params }),
   getById: (id: number) =>
     api.get<SavedWord>(`/saved-words/${id}`),
   create: (data: CreateSavedWordData) =>
@@ -81,6 +91,14 @@ export const savedWordService = {
     api.delete<{ message: string }>(`/saved-words/${id}`),
   regenerateDefinition: (id: number) =>
     api.post<{ message: string; savedWord: SavedWord }>(`/saved-words/${id}/regenerate-definition`),
+  getCategories: () =>
+    api.get<{ categories: Record<string, string> }>('/vocabulary/categories'),
+  generateCategoryWords: (category: string, count: number = 10) =>
+    api.get<{ category: string; words: Array<{ word: string; definition: string }> }>('/vocabulary/generate', {
+      params: { category, count }
+    }),
+  bulkSave: (data: BulkSaveWordsData) =>
+    api.post<{ message: string; savedWords: SavedWord[]; errors: string[] }>('/vocabulary/bulk-save', data),
 };
 
 // Quiz Services
