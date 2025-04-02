@@ -64,47 +64,41 @@ const DashboardPage: React.FC = () => {
 
         // Fetch quiz stats directly from the backend
         try {
-          // Define a fallback method since the getStats endpoint might be missing
-          if (typeof quizService.getStats === 'function') {
-            const quizStatsRes = await quizService.getStats();
-            setQuizStats(quizStatsRes.data);
-          } else {
-            // Fallback to calculating stats from available data
-            calculateQuizStats(quizzes);
+          const quizStatsRes = await quizService.getStats();
+          setQuizStats(quizStatsRes.data);
+
+          // Determine user's current German level based on activity
+          let currentLevel = 'A2';
+          let levelProgress = 20; // Default starting progress
+
+          // Simple algorithm: more words saved and better quiz scores = higher level
+          const wordCount = wordsRes.data.total || 0;
+          const avgScore = quizStatsRes.data.avgScore || 0;
+
+          if (wordCount > 100 && avgScore > 80) {
+            currentLevel = 'C1';
+            levelProgress = 75;
+          } else if (wordCount > 50 && avgScore > 70) {
+            currentLevel = 'B2';
+            levelProgress = 60;
+          } else if (wordCount > 20 && avgScore > 60) {
+            currentLevel = 'B1';
+            levelProgress = 40;
           }
+
+          setStats({
+            paragraphs: paragraphsRes.data.total || 0,
+            savedWords: wordsRes.data.total || 0,
+            quizzes: quizzesRes.data.total || 0,
+            quizAvgScore: avgScore,
+            currentLevel,
+            levelProgress,
+          });
         } catch (error) {
           console.error('Error fetching quiz stats:', error);
-          // Fallback to calculating stats from available data if API fails
+          // Fallback to calculating stats from available data
           calculateQuizStats(quizzes);
         }
-
-        // Determine user's current German level based on activity
-        let currentLevel = 'A2';
-        let levelProgress = 20; // Default starting progress
-
-        // Simple algorithm: more words saved and better quiz scores = higher level
-        const wordCount = wordsRes.data.total || 0;
-        const avgScore = quizStats.avgScore || 0;
-
-        if (wordCount > 100 && avgScore > 80) {
-          currentLevel = 'C1';
-          levelProgress = 75;
-        } else if (wordCount > 50 && avgScore > 70) {
-          currentLevel = 'B2';
-          levelProgress = 60;
-        } else if (wordCount > 20 && avgScore > 60) {
-          currentLevel = 'B1';
-          levelProgress = 40;
-        }
-
-        setStats({
-          paragraphs: paragraphsRes.data.total || 0,
-          savedWords: wordsRes.data.total || 0,
-          quizzes: quizzesRes.data.total || 0,
-          quizAvgScore: avgScore,
-          currentLevel,
-          levelProgress,
-        });
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
       } finally {

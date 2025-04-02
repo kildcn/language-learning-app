@@ -30,8 +30,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/saved-words/{savedWord}/regenerate-definition', [SavedWordController::class, 'regenerateDefinition']);
 
     // Quizzes
-    Route::apiResource('quizzes', QuizController::class);
-    Route::post('/quizzes/{quiz}/attempt', [QuizController::class, 'submitAttempt']);
-    Route::get('/quizzes/{quiz}/attempts', [QuizController::class, 'attempts']);
     Route::get('/quizzes/stats', [QuizController::class, 'stats']);
+Route::apiResource('quizzes', QuizController::class);
+Route::post('/quizzes/{quiz}/attempt', [QuizController::class, 'submitAttempt']);
+Route::get('/quizzes/{quiz}/attempts', [QuizController::class, 'attempts']);
 });
