@@ -1,4 +1,4 @@
-// src/types/index.ts
+// src/types/index.ts - Update this file with improved Quiz types
 export interface User {
   id: number;
   name: string;
@@ -38,14 +38,36 @@ export interface QuizQuestion {
   correctAnswer: string | number;
 }
 
+export interface MatchingQuizData {
+  words: string[];
+  definitions: string[];
+  matches: {
+    word: string;
+    definition: string;
+    word_id: number;
+  }[];
+}
+
+export interface QuizQuestions {
+  questions?: QuizQuestion[];
+  words?: string[];
+  definitions?: string[];
+  matches?: {
+    word: string;
+    definition: string;
+    word_id: number;
+  }[];
+}
+
 export interface Quiz {
   id: number;
   title: string;
-  type: 'multiple_choice' | 'fill_blank' | 'matching';
+  type: 'multiple_choice' | 'matching';
   user_id: number;
-  questions: QuizQuestion[] | Record<string, QuizQuestion>;
+  questions: QuizQuestions;
   created_at: string;
   updated_at: string;
+  attempts?: QuizAttempt[];
 }
 
 export interface QuizAttempt {

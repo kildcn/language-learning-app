@@ -5,7 +5,7 @@ import {
   Box, Grid, Paper, Typography, Button, Divider,
   List, ListItem, ListItemText, CircularProgress,
   Card, CardContent, CardActions, CardHeader,
-  LinearProgress, Tooltip
+  LinearProgress, Tooltip, Alert
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -39,6 +39,12 @@ const DashboardPage: React.FC = () => {
   });
   const [recentParagraphs, setRecentParagraphs] = useState<any[]>([]);
   const [recentWords, setRecentWords] = useState<any[]>([]);
+  const [quizStats, setQuizStats] = useState({
+    totalAttempts: 0,
+    avgScore: 0,
+    totalWords: 0,
+    totalQuestions: 0
+  });
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -56,23 +62,21 @@ const DashboardPage: React.FC = () => {
         const quizzesRes = await quizService.getAll();
         const quizzes = quizzesRes.data.data || [];
 
-        // Calculate quiz average score if there are any attempts
-        let totalScore = 0;
-        let totalAttempts = 0;
-
-        // This would require backend changes to fetch all attempts in one go
-        // Just calculate based on available data
-        const quizzesWithAttempts = quizzes as (Quiz & { attempts?: any[] })[];
-        for (const quiz of quizzesWithAttempts) {
-          if (quiz.attempts && quiz.attempts.length) {
-            quiz.attempts.forEach((attempt: any) => {
-              totalScore += attempt.score;
-              totalAttempts++;
-            });
+        // Fetch quiz stats directly from the backend
+        try {
+          // Define a fallback method since the getStats endpoint might be missing
+          if (typeof quizService.getStats === 'function') {
+            const quizStatsRes = await quizService.getStats();
+            setQuizStats(quizStatsRes.data);
+          } else {
+            // Fallback to calculating stats from available data
+            calculateQuizStats(quizzes);
           }
+        } catch (error) {
+          console.error('Error fetching quiz stats:', error);
+          // Fallback to calculating stats from available data if API fails
+          calculateQuizStats(quizzes);
         }
-
-        const avgScore = totalAttempts > 0 ? Math.round((totalScore / totalAttempts) * 100) : 0;
 
         // Determine user's current German level based on activity
         let currentLevel = 'A2';
@@ -80,6 +84,8 @@ const DashboardPage: React.FC = () => {
 
         // Simple algorithm: more words saved and better quiz scores = higher level
         const wordCount = wordsRes.data.total || 0;
+        const avgScore = quizStats.avgScore || 0;
+
         if (wordCount > 100 && avgScore > 80) {
           currentLevel = 'C1';
           levelProgress = 75;
@@ -108,6 +114,53 @@ const DashboardPage: React.FC = () => {
 
     fetchDashboardData();
   }, []);
+
+  // Fallback method to calculate quiz stats if the API endpoint fails
+  const calculateQuizStats = (quizzes: any[]) => {
+    let totalAttempts = 0;
+    let totalScore = 0;
+    let totalQuestions = 0;
+
+    // This would require backend changes to fetch all attempts in one go
+    // Just calculate based on available data
+    const quizzesWithAttempts = quizzes as (Quiz & { attempts?: any[] })[];
+    for (const quiz of quizzesWithAttempts) {
+      if (quiz.attempts && quiz.attempts.length) {
+        quiz.attempts.forEach((attempt: any) => {
+          totalScore += attempt.score;
+          totalAttempts++;
+
+          // Estimate number of questions (this is imperfect without backend changes)
+          const questionCount = getQuestionCount(quiz);
+          totalQuestions += questionCount;
+        });
+      }
+    }
+
+    const avgScore = totalQuestions > 0 ? Math.round((totalScore / totalQuestions) * 100) : 0;
+
+    setQuizStats({
+      totalAttempts,
+      avgScore,
+      totalWords: totalScore,
+      totalQuestions
+    });
+  };
+
+  // Helper function to estimate question count for a quiz
+  const getQuestionCount = (quiz: any): number => {
+    if (!quiz.questions) return 0;
+
+    if (quiz.type === 'multiple_choice') {
+      const questions = quiz.questions.questions || [];
+      return questions.length;
+    } else if (quiz.type === 'matching') {
+      const words = quiz.questions.words || [];
+      return words.length;
+    }
+
+    return 0;
+  };
 
   if (loading) {
     return (
@@ -151,6 +204,9 @@ const DashboardPage: React.FC = () => {
               </Typography>
               <Typography variant="h4" color={stats.quizAvgScore > 70 ? 'success.main' : 'warning.main'}>
                 {stats.quizAvgScore}%
+              </Typography>
+              <Typography variant="body2" color="textSecondary">
+                {quizStats.totalAttempts} attempt{quizStats.totalAttempts !== 1 ? 's' : ''}
               </Typography>
             </Box>
           </Box>
@@ -313,7 +369,7 @@ const DashboardPage: React.FC = () => {
                   <ListItem key={word.id} component={RouterLink} to="/saved-words" button>
                     <ListItemText
                       primary={word.word}
-                      secondary={word.definition?.substring(0, 60) + '...' || 'No definition'}
+                      secondary={word.definition?.substring(0, 60) + (word.definition?.length > 60 ? '...' : '') || 'No definition'}
                     />
                   </ListItem>
                 ))}

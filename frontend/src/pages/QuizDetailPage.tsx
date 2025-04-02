@@ -1,4 +1,4 @@
-// src/pages/QuizDetailPage.tsx
+// src/pages/QuizDetailPage.tsx - Matching quiz display fix
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
@@ -7,7 +7,7 @@ import {
   Stepper, Step, StepLabel, Card, CardContent,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
   List, ListItem, ListItemText, Divider, Grid, IconButton, Tooltip,
-  MenuItem, Chip, Alert
+  MenuItem, Chip, Alert, Select
 } from '@mui/material';
 import {
   VolumeUp as VolumeUpIcon,
@@ -16,6 +16,7 @@ import {
   Info as InfoIcon
 } from '@mui/icons-material';
 import { quizService } from '../services/api';
+import { Quiz, QuizQuestions } from '../types';
 
 // Function to get color based on score percentage
 const getScoreColor = (score: number, total: number): string => {
@@ -29,7 +30,7 @@ const QuizDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
-  const [quiz, setQuiz] = useState<any>(null);
+  const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [quizStarted, setQuizStarted] = useState(false);
@@ -40,6 +41,9 @@ const QuizDetailPage: React.FC = () => {
   const [attempts, setAttempts] = useState<any[]>([]);
   const [showAttempts, setShowAttempts] = useState(false);
   const [showHint, setShowHint] = useState(false);
+
+  // For matching quiz
+  const [matchingAnswers, setMatchingAnswers] = useState<Record<number, number>>({});
 
   useEffect(() => {
     if (id) {
@@ -54,6 +58,15 @@ const QuizDetailPage: React.FC = () => {
     try {
       const response = await quizService.getById(parseInt(id));
       setQuiz(response.data);
+
+      // Initialize matching answers if needed
+      if (response.data.type === 'matching' && response.data.questions?.words) {
+        const initialMatchingAnswers: Record<number, number> = {};
+        response.data.questions.words.forEach((_: any, index: number) => {
+          initialMatchingAnswers[index] = -1; // -1 means not matched yet
+        });
+        setMatchingAnswers(initialMatchingAnswers);
+      }
 
       // Fetch previous attempts
       try {
@@ -77,12 +90,28 @@ const QuizDetailPage: React.FC = () => {
     setQuizCompleted(false);
     setResult(null);
     setShowHint(false);
+
+    // Reset matching answers if needed
+    if (quiz?.type === 'matching' && quiz.questions?.words) {
+      const initialMatchingAnswers: Record<number, number> = {};
+      quiz.questions.words.forEach((_: any, index: number) => {
+        initialMatchingAnswers[index] = -1; // -1 means not matched yet
+      });
+      setMatchingAnswers(initialMatchingAnswers);
+    }
   };
 
   const handleAnswerChange = (value: any) => {
     setAnswers({
       ...answers,
       [currentQuestion]: value
+    });
+  };
+
+  const handleMatchingAnswerChange = (wordIndex: number, definitionIndex: number) => {
+    setMatchingAnswers({
+      ...matchingAnswers,
+      [wordIndex]: definitionIndex
     });
   };
 
@@ -103,12 +132,26 @@ const QuizDetailPage: React.FC = () => {
   };
 
   const submitQuiz = async () => {
-    if (!id) return;
+    if (!id || !quiz) return;
 
     setLoading(true);
     try {
+      // Format answers for submission
+      let answersToSubmit: any[] = [];
+
+      if (quiz.type === 'matching') {
+        // For matching quiz, convert matchingAnswers object to array format
+        answersToSubmit = Object.entries(matchingAnswers).map(([wordIndex, defIndex]) => ({
+          wordIndex: parseInt(wordIndex),
+          definitionIndex: defIndex
+        }));
+      } else {
+        // For multiple choice, submit the answers array
+        answersToSubmit = Object.values(answers);
+      }
+
       const response = await quizService.submitAttempt(parseInt(id), {
-        answers: Object.values(answers)
+        answers: answersToSubmit
       });
 
       setResult(response.data);
@@ -130,7 +173,7 @@ const QuizDetailPage: React.FC = () => {
   };
 
   // Function to speak German word using browser's speech synthesis
-  const speakGerman = (text: string) => {
+  const speakGerman = (text: string | undefined) => {
     if ('speechSynthesis' in window) {
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'de-DE'; // Set language to German
@@ -144,16 +187,12 @@ const QuizDetailPage: React.FC = () => {
   // Generate a hint based on quiz type and current question
   const generateHint = (): string => {
     if (!questions || !questions[currentQuestion]) return '';
-
+    if (!quiz) return '';
     const question = questions[currentQuestion];
 
     switch (quiz?.type) {
       case 'multiple_choice':
         return "Try to recall the meaning of this German word. Think about its context or any similar words you may know.";
-
-      case 'fill_blank':
-        // Look at the sentence context for fill in the blank
-        return "Look carefully at the context of the sentence. The missing word should grammatically fit in the blank.";
 
       case 'matching':
         return "Look for clues in the definition that might connect to the German word. Consider word roots or similar words you know.";
@@ -178,9 +217,11 @@ const QuizDetailPage: React.FC = () => {
   }
 
   // Format questions based on quiz type
-  const questions = Array.isArray(quiz?.questions?.questions)
-    ? quiz.questions.questions
-    : [];
+  let questions: any[] = [];
+
+  if (quiz && quiz.type === 'multiple_choice' && quiz.questions?.questions) {
+    questions = quiz.questions.questions;
+  }
 
   const renderQuestion = () => {
     if (!questions || !questions[currentQuestion]) return null;
@@ -195,7 +236,7 @@ const QuizDetailPage: React.FC = () => {
               <Typography variant="h6" gutterBottom>
                 {question.question || "What does this word mean?"}
               </Typography>
-              {question.question && typeof question.question === 'string' && question.question.includes('mean') && (
+              {question.question && typeof question.question === 'string' && question.question.includes('mean') && typeof speakGerman === 'function' && (
                 <Tooltip title="Listen to pronunciation">
                   <IconButton
                     onClick={() => {
@@ -232,85 +273,113 @@ const QuizDetailPage: React.FC = () => {
           </Box>
         );
 
-      case 'fill_blank':
-        return (
-          <Box>
-            <Typography variant="h6" gutterBottom>
-              Fill in the blank with the correct German word:
-            </Typography>
-            <Paper
-              variant="outlined"
-              sx={{ p: 2, mb: 2, backgroundColor: 'rgba(0, 0, 0, 0.02)' }}
-            >
-              <Typography variant="body1">
-                {question.sentence ? question.sentence.replace('_____', '________') : "_____ (Missing sentence)"}
-              </Typography>
-            </Paper>
-            <TextField
-              fullWidth
-              label="Your answer"
-              value={answers[currentQuestion] || ''}
-              onChange={(e) => handleAnswerChange(e.target.value)}
-              margin="normal"
-            />
-            <Button
-              size="small"
-              startIcon={<VolumeUpIcon />}
-              onClick={() => {
-                // Speak the sentence but replace the blank with a pause
-                if (question.sentence) {
-                  const sentenceWithPause = question.sentence.replace('_____', '... ');
-                  speakGerman(sentenceWithPause);
-                }
-              }}
-              sx={{ mt: 1 }}
-            >
-              Listen to sentence
-            </Button>
-          </Box>
-        );
-
-      case 'matching':
-        // Simplified matching UI - in a real app, you'd want drag-and-drop
-        return (
-          <Box>
-            <Typography variant="h6" gutterBottom>
-              Match the German word with its English definition:
-            </Typography>
-            <Box display="flex" alignItems="center">
-              <Typography variant="h5" sx={{ mr: 2 }}>
-                {question.word || "(Missing word)"}
-              </Typography>
-              {question.word && (
-                <IconButton
-                  onClick={() => speakGerman(question.word)}
-                  color="primary"
-                  size="small"
-                >
-                  <VolumeUpIcon />
-                </IconButton>
-              )}
-            </Box>
-            <TextField
-              select
-              fullWidth
-              label="Select the correct definition"
-              value={answers[currentQuestion] || ''}
-              onChange={(e) => handleAnswerChange(e.target.value)}
-              margin="normal"
-            >
-              {question.options && Array.isArray(question.options) && question.options.map((option: string, index: number) => (
-                <MenuItem key={index} value={index}>
-                  {option}
-                </MenuItem>
-              ))}
-            </TextField>
-          </Box>
-        );
-
       default:
         return <Typography>Question format not supported</Typography>;
     }
+  };
+
+  // Render matching quiz layout
+  const renderMatchingQuiz = () => {
+    if (!quiz || !quiz.questions?.words || !quiz.questions?.definitions) {
+      return <Typography>No matching quiz data available</Typography>;
+    }
+
+    const { words, definitions } = quiz.questions;
+
+    return (
+      <Box sx={{ mt: 3 }}>
+        <Typography variant="h6" gutterBottom>
+          Match the German words with their English translations
+        </Typography>
+
+        <Grid container spacing={4}>
+          {/* Words column */}
+          <Grid item xs={12} md={6}>
+            <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+              German Words
+            </Typography>
+            <List>
+              {words.map((word: string, wordIndex: number) => (
+                <ListItem key={`word-${wordIndex}`} sx={{
+                  mb: 1,
+                  p: 2,
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 1,
+                  bgcolor: matchingAnswers[wordIndex] >= 0 ? '#e8f5e9' : 'white'
+                }}>
+                  <Box width="100%" display="flex" alignItems="center" justifyContent="space-between">
+                    <Box display="flex" alignItems="center">
+                      <Typography variant="body1" fontWeight="medium">
+                        {word}
+                      </Typography>
+                      <IconButton
+                        size="small"
+                        onClick={() => speakGerman(word) }
+                        color="primary"
+                      >
+                        <VolumeUpIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
+                    <FormControl fullWidth sx={{ maxWidth: 200 }}>
+                      <Select
+                        value={matchingAnswers[wordIndex] === -1 ? '' : matchingAnswers[wordIndex]}
+                        onChange={(e) => handleMatchingAnswerChange(wordIndex, e.target.value as number)}
+                        displayEmpty
+                        size="small"
+                      >
+                        <MenuItem value="" disabled>
+                          <em>Select translation</em>
+                        </MenuItem>
+                        {definitions.map((definition: string, defIndex: number) => (
+                          <MenuItem
+                            key={`def-option-${defIndex}`}
+                            value={defIndex}
+                            disabled={Object.values(matchingAnswers).includes(defIndex) && matchingAnswers[wordIndex] !== defIndex}
+                          >
+                            {definition}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Box>
+                </ListItem>
+              ))}
+            </List>
+          </Grid>
+
+          {/* Definitions column */}
+          <Grid item xs={12} md={6}>
+            <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+              English Translations
+            </Typography>
+            <List>
+              {definitions.map((definition: string, defIndex: number) => (
+                <ListItem key={`def-${defIndex}`} sx={{
+                  mb: 1,
+                  p: 2,
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 1,
+                  bgcolor: Object.values(matchingAnswers).includes(defIndex) ? '#e8f5e9' : 'white'
+                }}>
+                  <Typography variant="body1">
+                    {definition}
+                  </Typography>
+                </ListItem>
+              ))}
+            </List>
+          </Grid>
+        </Grid>
+      </Box>
+    );
+  };
+
+  const allMatchingsComplete = () => {
+    if (!quiz || !quiz.questions.words) return false;
+
+    const wordCount = quiz.questions.words.length;
+    const matchedCount = Object.values(matchingAnswers).filter(val => val !== -1).length;
+
+    return matchedCount === wordCount;
   };
 
   return (
@@ -335,7 +404,6 @@ const QuizDetailPage: React.FC = () => {
               <Chip
                 label={
                   quiz.type === 'multiple_choice' ? 'Multiple Choice' :
-                  quiz.type === 'fill_blank' ? 'Fill in the Blank' :
                   quiz.type === 'matching' ? 'Matching' : quiz.type
                 }
                 color="primary"
@@ -343,7 +411,7 @@ const QuizDetailPage: React.FC = () => {
                 sx={{ mr: 1 }}
               />
               <Chip
-                label={`${questions.length} questions`}
+                label={`${quiz.questions.words?.length || questions.length} questions`}
                 color="secondary"
                 variant="outlined"
               />
@@ -352,7 +420,6 @@ const QuizDetailPage: React.FC = () => {
             <Typography variant="body1" paragraph>
               Test your knowledge of German vocabulary with this quiz.
               {quiz.type === 'multiple_choice' && " You'll be shown German words and need to select the correct English translation."}
-              {quiz.type === 'fill_blank' && " You'll need to complete German sentences by filling in the missing word."}
               {quiz.type === 'matching' && " You'll match German words with their English translations."}
             </Typography>
 
@@ -440,56 +507,91 @@ const QuizDetailPage: React.FC = () => {
         </Paper>
       ) : (
         <Paper sx={{ p: 3 }}>
-          <Stepper activeStep={currentQuestion} alternativeLabel sx={{ mb: 4 }}>
-            {questions.map((_: any, index: number) => (
-              <Step key={index}>
-                <StepLabel>Q{index + 1}</StepLabel>
-              </Step>
-            ))}
-          </Stepper>
+          {quiz.type === 'matching' ? (
+            // Matching quiz layout
+            <>
+              {renderMatchingQuiz()}
 
-          <Box sx={{ mb: 3 }}>
-            <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-              <Typography variant="body2" color="textSecondary">
-                Question {currentQuestion + 1} of {questions.length}
-              </Typography>
-              <Button
-                startIcon={<TipIcon />}
-                variant="text"
-                color="primary"
-                size="small"
-                onClick={() => setShowHint(!showHint)}
-              >
-                {showHint ? 'Hide Hint' : 'Show Hint'}
-              </Button>
-            </Box>
+              <Box display="flex" justifyContent="space-between" mt={4}>
+                <Button
+                  variant="text"
+                  startIcon={<TipIcon />}
+                  onClick={() => setShowHint(!showHint)}
+                >
+                  {showHint ? 'Hide Hint' : 'Show Hint'}
+                </Button>
 
-            {showHint && (
-              <Alert severity="info" sx={{ mb: 2 }}>
-                <Typography variant="body2">{generateHint()}</Typography>
-              </Alert>
-            )}
+                <Button
+                  onClick={submitQuiz}
+                  variant="contained"
+                  color="primary"
+                  disabled={!allMatchingsComplete()}
+                >
+                  Submit Quiz
+                </Button>
+              </Box>
 
-            {renderQuestion()}
-          </Box>
+              {showHint && (
+                <Alert severity="info" sx={{ mt: 2 }}>
+                  <Typography variant="body2">Look for clues in the translations that might connect to the German words. Many German nouns start with a capital letter.</Typography>
+                </Alert>
+              )}
+            </>
+          ) : (
+            // Multiple choice quiz layout
+            <>
+              <Stepper activeStep={currentQuestion} alternativeLabel sx={{ mb: 4 }}>
+                {questions.map((_: any, index: number) => (
+                  <Step key={index}>
+                    <StepLabel>Q{index + 1}</StepLabel>
+                  </Step>
+                ))}
+              </Stepper>
 
-          <Box display="flex" justifyContent="space-between">
-            <Button
-              onClick={goToPreviousQuestion}
-              disabled={currentQuestion === 0}
-              variant="outlined"
-            >
-              Previous
-            </Button>
-            <Button
-              onClick={goToNextQuestion}
-              variant="contained"
-              color="primary"
-              disabled={answers[currentQuestion] === undefined}
-            >
-              {currentQuestion < questions.length - 1 ? 'Next' : 'Submit Quiz'}
-            </Button>
-          </Box>
+              <Box sx={{ mb: 3 }}>
+                <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                  <Typography variant="body2" color="textSecondary">
+                    Question {currentQuestion + 1} of {questions.length}
+                  </Typography>
+                  <Button
+                    startIcon={<TipIcon />}
+                    variant="text"
+                    color="primary"
+                    size="small"
+                    onClick={() => setShowHint(!showHint)}
+                  >
+                    {showHint ? 'Hide Hint' : 'Show Hint'}
+                  </Button>
+                </Box>
+
+                {showHint && (
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    <Typography variant="body2">{generateHint()}</Typography>
+                  </Alert>
+                )}
+
+                {renderQuestion()}
+              </Box>
+
+              <Box display="flex" justifyContent="space-between">
+                <Button
+                  onClick={goToPreviousQuestion}
+                  disabled={currentQuestion === 0}
+                  variant="outlined"
+                >
+                  Previous
+                </Button>
+                <Button
+                  onClick={goToNextQuestion}
+                  variant="contained"
+                  color="primary"
+                  disabled={answers[currentQuestion] === undefined}
+                >
+                  {currentQuestion < questions.length - 1 ? 'Next' : 'Submit Quiz'}
+                </Button>
+              </Box>
+            </>
+          )}
         </Paper>
       )}
 
@@ -513,10 +615,23 @@ const QuizDetailPage: React.FC = () => {
                         <Typography
                           component="span"
                           sx={{
-                            color: getScoreColor(attempt.score, questions.length)
+                            color: getScoreColor(
+                              attempt.score,
+                              quiz.type === 'matching' && quiz.questions.words
+                                ? quiz.questions.words.length
+                                : questions.length
+                            )
                           }}
                         >
-                          Score: {attempt.score}/{questions.length} ({Math.round(attempt.score / questions.length * 100)}%)
+                          Score: {attempt.score}/
+                          {quiz.type === 'matching' && quiz.questions.words
+                            ? quiz.questions.words.length
+                            : questions.length}
+                          ({Math.round(attempt.score / (
+                            quiz.type === 'matching' && quiz.questions.words
+                              ? quiz.questions.words.length
+                              : questions.length
+                          ) * 100)}%)
                         </Typography>
                       }
                     />

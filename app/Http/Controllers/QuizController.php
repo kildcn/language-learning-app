@@ -16,6 +16,9 @@ class QuizController extends Controller
     {
         $quizzes = $request->user()
             ->quizzes()
+            ->with(['attempts' => function($query) use ($request) {
+                $query->where('user_id', $request->user()->id);
+            }])
             ->latest()
             ->paginate(10);
 
@@ -26,19 +29,21 @@ class QuizController extends Controller
     {
         $request->validate([
             'title' => 'required|string|max:100',
-            'type' => 'required|in:multiple_choice,fill_blank,matching',
-            'word_ids' => 'required|array',
+            'type' => 'required|in:multiple_choice,matching',
+            'word_ids' => 'sometimes|array',
             'word_ids.*' => 'exists:saved_words,id',
+            'wordCount' => 'sometimes|integer|min:5|max:20',
+            'level' => 'sometimes|in:all,beginner,intermediate,advanced',
+            'source' => 'required|in:selection,recent,random',
         ]);
 
         try {
-            $words = SavedWord::whereIn('id', $request->word_ids)
-                ->where('user_id', $request->user()->id)
-                ->get();
+            // Get words based on the requested source
+            $words = $this->getWordsForQuiz($request);
 
             if ($words->count() === 0) {
                 return response()->json([
-                    'message' => 'No words selected for the quiz',
+                    'message' => 'No words available for the quiz',
                 ], 400);
             }
 
@@ -68,12 +73,45 @@ class QuizController extends Controller
         }
     }
 
+    /**
+     * Get words for quiz based on source (selection, recent, random)
+     */
+    private function getWordsForQuiz(Request $request)
+    {
+        $userId = $request->user()->id;
+        $query = SavedWord::where('user_id', $userId);
+
+        // Filter by level if provided
+        if ($request->has('level') && $request->level !== 'all') {
+            $query->when($request->level === 'beginner', function($q) {
+                return $q->whereRaw('LENGTH(word) <= 6');
+            })
+            ->when($request->level === 'intermediate', function($q) {
+                return $q->whereRaw('LENGTH(word) > 6 AND LENGTH(word) <= 10');
+            })
+            ->when($request->level === 'advanced', function($q) {
+                return $q->whereRaw('LENGTH(word) > 10');
+            });
+        }
+
+        if ($request->source === 'selection' && $request->has('word_ids')) {
+            // Selection: Use specific word IDs
+            return $query->whereIn('id', $request->word_ids)->get();
+        } elseif ($request->source === 'recent') {
+            // Recent: Get most recently saved words
+            $limit = $request->wordCount ?? 10;
+            return $query->latest()->limit($limit)->get();
+        } else {
+            // Random: Get random words
+            $limit = $request->wordCount ?? 10;
+            return $query->inRandomOrder()->limit($limit)->get();
+        }
+    }
+
     private function createQuiz($words, $type)
     {
         if ($type === 'multiple_choice') {
             return $this->createMultipleChoiceQuiz($words);
-        } elseif ($type === 'fill_blank') {
-            return $this->createFillBlankQuiz($words);
         } elseif ($type === 'matching') {
             return $this->createMatchingQuiz($words);
         }
@@ -102,7 +140,7 @@ class QuizController extends Controller
 
         foreach ($words as $word) {
             // Get the simple meaning for this word
-            $correctMeaning = $wordMeanings[$word->id] ?? $this->fallbackMeaning($word);
+            $correctMeaning = $wordMeanings[$word->id] ?? $this->extractSimpleMeaning($word);
 
             // Get 3 distinct incorrect meanings
             $incorrectMeanings = $this->getDistinctOptions(
@@ -123,29 +161,6 @@ class QuizController extends Controller
                 'options' => $options,
                 'correctAnswer' => $correctIndex,
                 'word_id' => $word->id,
-            ];
-        }
-
-        return [
-            'questions' => $questions
-        ];
-    }
-
-    private function createFillBlankQuiz($words)
-    {
-        $questions = [];
-
-        foreach ($words as $word) {
-            // Create a simple sentence using the word
-            $sentence = $this->generateFillBlankSentence($word);
-
-            // Replace the word with a blank
-            $blankSentence = str_replace($word->word, '_____', $sentence);
-
-            $questions[] = [
-                'sentence' => $blankSentence,
-                'correctAnswer' => $word->word,
-                'word_id' => $word->id
             ];
         }
 
@@ -194,6 +209,9 @@ class QuizController extends Controller
 
         $definition = $word->definition;
 
+        // Check for specific word categories first to improve classification
+        $wordCategory = $this->detectWordCategory($definition);
+
         // Look for a direct translation in quotes (common pattern in definitions)
         if (preg_match('/translates to [\'"]([^\'"].*?)[\'"]/', $definition, $matches)) {
             return $this->cleanAndTruncate($matches[1]);
@@ -213,7 +231,7 @@ class QuizController extends Controller
         }
 
         // For nouns, look for the pattern "der/die/das Word - meaning"
-        if (preg_match('/(der|die|das)\s+' . preg_quote($word->word, '/') . '\s*[-:]\s*([^\.;,]+)/', $definition, $matches)) {
+        if ($wordCategory === 'noun' && preg_match('/(der|die|das)\s+' . preg_quote($word->word, '/') . '\s*[-:]\s*([^\.;,]+)/', $definition, $matches)) {
             return $this->cleanAndTruncate($matches[2]);
         }
 
@@ -226,8 +244,11 @@ class QuizController extends Controller
             return $this->cleanAndTruncate($matches[1]);
         }
 
-        // Fallback to word type-based meanings
-        return $this->fallbackMeaning($word);
+        // If nothing matched, just take the first few words of the definition
+        $parts = explode(' ', trim($definition));
+        $simplifiedDefinition = implode(' ', array_slice($parts, 0, 3));
+
+        return $simplifiedDefinition ?: $this->fallbackMeaning($word);
     }
 
     /**
@@ -237,6 +258,9 @@ class QuizController extends Controller
     {
         // Remove articles at the beginning
         $text = preg_replace('/^(a|an|the)\s+/i', '', trim($text));
+
+        // Remove any extra information in parentheses
+        $text = preg_replace('/\([^)]*\)/', '', $text);
 
         // Limit to 3 words maximum
         $words = explode(' ', $text);
@@ -248,13 +272,52 @@ class QuizController extends Controller
     }
 
     /**
+     * Detect the category of the word (noun, verb, adjective, etc.)
+     */
+    private function detectWordCategory($definition)
+    {
+        $definition = strtolower($definition);
+
+        if (strpos($definition, 'noun') !== false ||
+            preg_match('/^(der|die|das)\s/', $definition) ||
+            preg_match('/\bsubstantiv\b/', $definition)) {
+            return 'noun';
+        }
+
+        if (strpos($definition, 'verb') !== false ||
+            strpos($definition, 'to ') === 0 ||
+            preg_match('/\bverb\b/', $definition) ||
+            preg_match('/\baktion\b/', $definition)) {
+            return 'verb';
+        }
+
+        if (strpos($definition, 'adjective') !== false ||
+            preg_match('/\badjektiv\b/', $definition) ||
+            preg_match('/\bdescribes\b/', $definition)) {
+            return 'adjective';
+        }
+
+        if (strpos($definition, 'adverb') !== false ||
+            preg_match('/\badverb\b/', $definition)) {
+            return 'adverb';
+        }
+
+        // German nouns start with capital letters
+        if (preg_match('/^[A-ZÄÖÜ]/', $definition)) {
+            return 'noun';
+        }
+
+        return 'other';
+    }
+
+    /**
      * Generate a fallback meaning based on word type
      */
     private function fallbackMeaning($word)
     {
-        $wordType = $this->detectWordType($word);
+        $wordCategory = $this->detectWordCategory($word->definition);
 
-        switch ($wordType) {
+        switch ($wordCategory) {
             case 'noun':
                 return $this->generateRandomNoun();
             case 'verb':
@@ -262,11 +325,13 @@ class QuizController extends Controller
             case 'adjective':
                 return $this->generateRandomAdjective();
             default:
-                // Try to make something plausible from the word itself
-                if (strlen($word->word) > 5) {
-                    return strtolower(substr($word->word, 0, 5) . '...');
+                // If we can't detect the type, use the word itself
+                if (!empty($word->definition)) {
+                    // Try to extract the first word from the definition
+                    $parts = explode(' ', trim($word->definition));
+                    return $parts[0];
                 }
-                return "word";
+                return $word->word;
         }
     }
 
@@ -352,91 +417,6 @@ class QuizController extends Controller
         }
 
         return array_unique($options);
-    }
-
-    private function generateFillBlankSentence($word)
-    {
-        // Extract whether it's a noun, verb, etc. from the definition if available
-        $wordType = $this->detectWordType($word);
-
-        // Template sentences for different word types
-        $templates = [
-            'noun' => [
-                "Ich sehe ein(e) {word} auf dem Tisch.",
-                "Das ist mein(e) {word}.",
-                "Die {word} ist sehr interessant.",
-                "Wir brauchen eine neue {word}.",
-                "Heute habe ich eine {word} gekauft."
-            ],
-            'verb' => [
-                "Ich {word} jeden Tag.",
-                "Wir {word} am Wochenende.",
-                "Er kann gut {word}.",
-                "Sie möchte heute {word}.",
-                "Willst du {word}?"
-            ],
-            'adjective' => [
-                "Das Haus ist sehr {word}.",
-                "Er hat ein {word}es Auto.",
-                "Die {word}e Frau ist meine Lehrerin.",
-                "Mir gefällt deine {word}e Jacke.",
-                "Das war wirklich {word}."
-            ],
-            'default' => [
-                "Ich mag das Wort '{word}'.",
-                "Kennst du das Wort '{word}'?",
-                "'{word}' ist ein deutsches Wort.",
-                "Kannst du '{word}' buchstabieren?",
-                "Wie spricht man '{word}' aus?"
-            ]
-        ];
-
-        // Select the appropriate template set
-        $templateSet = $templates[$wordType] ?? $templates['default'];
-
-        // Choose a random template and replace {word} with the actual word
-        $template = $templateSet[array_rand($templateSet)];
-
-        return str_replace('{word}', $word->word, $template);
-    }
-
-    private function detectWordType($word)
-    {
-        if (empty($word->definition)) {
-            return 'default';
-        }
-
-        $definition = strtolower($word->definition);
-
-        // Check definition for indicators
-        if (strpos($definition, 'noun') !== false ||
-            strpos($definition, 'der ') === 0 ||
-            strpos($definition, 'die ') === 0 ||
-            strpos($definition, 'das ') === 0) {
-            return 'noun';
-        }
-
-        if (strpos($definition, 'verb') !== false ||
-            strpos($definition, 'to ') !== false) {
-            return 'verb';
-        }
-
-        if (strpos($definition, 'adjective') !== false) {
-            return 'adjective';
-        }
-
-        // Try to guess from the word itself (less reliable)
-        if (preg_match('/^[A-ZÄÖÜ]/', $word->word)) {
-            // German nouns start with capital letters
-            return 'noun';
-        }
-
-        if (substr($word->word, -2) === 'en' || substr($word->word, -3) === 'ern') {
-            // Many German verbs end with 'en' or 'ern'
-            return 'verb';
-        }
-
-        return 'default';
     }
 
     // Helper methods to generate random words or expressions
@@ -532,6 +512,11 @@ class QuizController extends Controller
     {
         $this->authorize('view', $quiz);
 
+        // Load attempts for the quiz
+        $quiz->load(['attempts' => function($query) {
+            $query->where('user_id', auth()->id())->latest();
+        }]);
+
         return response()->json($quiz);
     }
 
@@ -575,7 +560,7 @@ class QuizController extends Controller
         $score = 0;
         $totalQuestions = 0;
 
-        if ($quiz->type === 'multiple_choice' || $quiz->type === 'fill_blank') {
+        if ($quiz->type === 'multiple_choice') {
             $questionsList = isset($questions['questions']) ? $questions['questions'] : $questions;
             $totalQuestions = count($questionsList);
 
@@ -587,25 +572,31 @@ class QuizController extends Controller
                 }
             }
         } elseif ($quiz->type === 'matching') {
-            if (isset($questions['words'])) {
+            // For matching quizzes, user answers should contain wordIndex and definitionIndex
+            if (isset($questions['words']) && isset($questions['matches'])) {
                 $totalQuestions = count($questions['words']);
+                $matches = $questions['matches'];
 
-                foreach ($userAnswers as $wordIndex => $definitionIndex) {
-                    if (is_numeric($wordIndex) && is_numeric($definitionIndex) &&
-                        isset($questions['matches'][$wordIndex]) &&
-                        isset($questions['definitions'][$definitionIndex]) &&
-                        $questions['matches'][$wordIndex]['definition'] === $questions['definitions'][$definitionIndex]) {
-                        $score++;
+                // Convert matches to a lookup array for easier comparison
+                $correctMatches = [];
+                foreach ($matches as $index => $match) {
+                    // Find the correct definition index based on the definition text
+                    $correctDefIndex = array_search($match['definition'], $questions['definitions']);
+                    if ($correctDefIndex !== false) {
+                        $correctMatches[$index] = $correctDefIndex;
                     }
                 }
-            } elseif (isset($questions['questions'])) {
-                $totalQuestions = count($questions['questions']);
 
-                foreach ($userAnswers as $index => $answer) {
-                    if (isset($questions['questions'][$index]) &&
-                        isset($questions['questions'][$index]['correctAnswer']) &&
-                        strcasecmp($questions['questions'][$index]['correctAnswer'], $answer) === 0) {
-                        $score++;
+                // Check each user answer
+                foreach ($userAnswers as $answer) {
+                    if (isset($answer['wordIndex']) && isset($answer['definitionIndex'])) {
+                        $wordIndex = $answer['wordIndex'];
+                        $defIndex = $answer['definitionIndex'];
+
+                        // If this word's correct match is this definition, count as correct
+                        if (isset($correctMatches[$wordIndex]) && $correctMatches[$wordIndex] === $defIndex) {
+                            $score++;
+                        }
                     }
                 }
             }
@@ -636,5 +627,45 @@ class QuizController extends Controller
             ->get();
 
         return response()->json($attempts);
+    }
+
+    /**
+     * Get stats for all user's quiz attempts
+     */
+    public function stats(Request $request)
+    {
+        $userId = $request->user()->id;
+
+        // Get all attempts for this user
+        $attempts = QuizAttempt::where('user_id', $userId)->get();
+
+        $totalAttempts = $attempts->count();
+        $totalScore = $attempts->sum('score');
+        $totalQuestions = 0;
+
+        foreach ($attempts as $attempt) {
+            $quiz = Quiz::find($attempt->quiz_id);
+            if ($quiz) {
+                if ($quiz->type === 'multiple_choice') {
+                    $questions = isset($quiz->questions['questions']) ? $quiz->questions['questions'] : $quiz->questions;
+                    $totalQuestions += count($questions);
+                } elseif ($quiz->type === 'matching') {
+                    if (isset($quiz->questions['words'])) {
+                        $totalQuestions += count($quiz->questions['words']);
+                    } elseif (isset($quiz->questions['questions'])) {
+                        $totalQuestions += count($quiz->questions['questions']);
+                    }
+                }
+            }
+        }
+
+        $avgScore = $totalQuestions > 0 ? ($totalScore / $totalQuestions) * 100 : 0;
+
+        return response()->json([
+            'totalAttempts' => $totalAttempts,
+            'avgScore' => round($avgScore, 1),
+            'totalWords' => $totalScore,
+            'totalQuestions' => $totalQuestions
+        ]);
     }
 }

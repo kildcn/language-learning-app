@@ -86,8 +86,11 @@ export const savedWordService = {
 // Quiz Services
 interface CreateQuizData {
   title: string;
-  type: 'multiple_choice' | 'fill_blank' | 'matching';
-  word_ids: number[];
+  type: 'multiple_choice' | 'matching';
+  word_ids?: number[];
+  wordCount?: number;
+  level?: 'all' | 'beginner' | 'intermediate' | 'advanced';
+  source: 'selection' | 'recent' | 'random';
 }
 
 interface UpdateQuizData {
@@ -102,6 +105,13 @@ interface QuizAttemptResponse {
   message: string;
   quizAttempt: QuizAttempt;
   score: number;
+  totalQuestions: number;
+}
+
+interface QuizStatsResponse {
+  totalAttempts: number;
+  avgScore: number;
+  totalWords: number;
   totalQuestions: number;
 }
 
@@ -120,4 +130,6 @@ export const quizService = {
     api.post<QuizAttemptResponse>(`/quizzes/${id}/attempt`, data),
   getAttempts: (id: number) =>
     api.get<QuizAttempt[]>(`/quizzes/${id}/attempts`),
+  getStats: () =>
+    api.get<QuizStatsResponse>('/quizzes/stats'),
 };
