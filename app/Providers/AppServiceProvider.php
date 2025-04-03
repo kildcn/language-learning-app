@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Services\OpenAIService;
 use App\Services\VocabularyService;
+use App\Services\ProgressService;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -21,6 +22,11 @@ class AppServiceProvider extends ServiceProvider
         // Register the VocabularyService as a singleton
         $this->app->singleton(VocabularyService::class, function ($app) {
             return new VocabularyService();
+        });
+
+        // Register the ProgressService as a singleton
+        $this->app->singleton(ProgressService::class, function ($app) {
+            return new ProgressService();
         });
     }
 

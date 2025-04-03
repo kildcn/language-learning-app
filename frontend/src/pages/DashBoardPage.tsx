@@ -4,8 +4,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import {
   Box, Grid, Paper, Typography, Button, Divider,
   List, ListItem, ListItemText, CircularProgress,
-  Card, CardContent, CardActions, CardHeader,
-  LinearProgress, Tooltip, Alert
+  Card, CardContent, CardActions, Alert
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -17,26 +16,11 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { paragraphService, savedWordService, quizService } from '../services/api';
 import { Quiz } from '../types';
-
-// German level descriptions
-const levelDescriptions: Record<string, string> = {
-  'A2': 'Elementary (Grundstufe)',
-  'B1': 'Intermediate (Mittelstufe)',
-  'B2': 'Upper Intermediate (Fortgeschrittene)',
-  'C1': 'Advanced (Fortgeschrittene Plus)',
-};
+import UserProgressComponent from '../components/dashboard/UserProgressComponent';
 
 const DashboardPage: React.FC = () => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({
-    paragraphs: 0,
-    savedWords: 0,
-    quizzes: 0,
-    quizAvgScore: 0,
-    currentLevel: '',
-    levelProgress: 0,
-  });
   const [recentParagraphs, setRecentParagraphs] = useState<any[]>([]);
   const [recentWords, setRecentWords] = useState<any[]>([]);
   const [quizStats, setQuizStats] = useState({
@@ -58,69 +42,12 @@ const DashboardPage: React.FC = () => {
         const wordsRes = await savedWordService.getAll();
         setRecentWords((wordsRes.data.data || []).slice(0, 5));
 
-        // Fetch quizzes for stats
-        const quizzesRes = await quizService.getAll();
-        const quizzes = quizzesRes.data.data || [];
-
         // Fetch quiz stats directly from the backend
         try {
           const quizStatsRes = await quizService.getStats();
-          console.log("Quiz Stats Response:", quizStatsRes.data);
           setQuizStats(quizStatsRes.data);
-
-          // Determine user's current German level based on activity
-          let currentLevel = 'A2';
-          let levelProgress = 20; // Default starting progress
-
-          // Simple algorithm: more words saved and better quiz scores = higher level
-          const wordCount = wordsRes.data.total || 0;
-          const avgScore = quizStatsRes.data.avgScore || 0;
-          const totalAttempts = quizStatsRes.data.totalAttempts || 0;
-
-          console.log("Word Count:", wordCount);
-          console.log("Average Score:", avgScore);
-          console.log("Total Quiz Attempts:", totalAttempts);
-
-          // Make progress more responsive - adjust thresholds
-          if (wordCount >= 15 || avgScore >= 80) {
-            currentLevel = 'B1';
-            levelProgress = 40;
-          }
-
-          if (wordCount >= 30 || avgScore >= 85) {
-            currentLevel = 'B2';
-            levelProgress = 60;
-          }
-
-          if (wordCount >= 50 || avgScore >= 90) {
-            currentLevel = 'C1';
-            levelProgress = 75;
-          }
-
-          // If they've completed at least one quiz with 100% score, guarantee minimum progress
-          if (totalAttempts > 0 && avgScore >= 95) {
-            // Ensure at least B1 level for perfect scores
-            if (currentLevel === 'A2') {
-              currentLevel = 'B1';
-              levelProgress = 40;
-            }
-          }
-
-          console.log("Calculated Level:", currentLevel);
-          console.log("Calculated Progress:", levelProgress);
-
-          setStats({
-            paragraphs: paragraphsRes.data.total || 0,
-            savedWords: wordsRes.data.total || 0,
-            quizzes: quizzesRes.data.total || 0,
-            quizAvgScore: avgScore,
-            currentLevel,
-            levelProgress,
-          });
         } catch (error) {
           console.error('Error fetching quiz stats:', error);
-          // Fallback to calculating stats from available data
-          calculateQuizStats(quizzes);
         }
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
@@ -131,69 +58,6 @@ const DashboardPage: React.FC = () => {
 
     fetchDashboardData();
   }, []);
-
-  // Modified LinearProgress component implementation
-  // Replace the existing LinearProgress in the render with this:
-  <LinearProgress
-    variant="determinate"
-    value={stats.levelProgress || 0}
-    sx={{
-      height: 10,
-      width: '100%',
-      borderRadius: 5,
-      '& .MuiLinearProgress-bar': {
-        backgroundColor: 'primary.main',
-        borderRadius: 5
-      }
-    }}
-  />
-
-  // Fallback method to calculate quiz stats if the API endpoint fails
-  const calculateQuizStats = (quizzes: any[]) => {
-    let totalAttempts = 0;
-    let totalScore = 0;
-    let totalQuestions = 0;
-
-    // This would require backend changes to fetch all attempts in one go
-    // Just calculate based on available data
-    const quizzesWithAttempts = quizzes as (Quiz & { attempts?: any[] })[];
-    for (const quiz of quizzesWithAttempts) {
-      if (quiz.attempts && quiz.attempts.length) {
-        quiz.attempts.forEach((attempt: any) => {
-          totalScore += attempt.score;
-          totalAttempts++;
-
-          // Estimate number of questions (this is imperfect without backend changes)
-          const questionCount = getQuestionCount(quiz);
-          totalQuestions += questionCount;
-        });
-      }
-    }
-
-    const avgScore = totalQuestions > 0 ? Math.round((totalScore / totalQuestions) * 100) : 0;
-
-    setQuizStats({
-      totalAttempts,
-      avgScore,
-      totalWords: totalScore,
-      totalQuestions
-    });
-  };
-
-  // Helper function to estimate question count for a quiz
-  const getQuestionCount = (quiz: any): number => {
-    if (!quiz.questions) return 0;
-
-    if (quiz.type === 'multiple_choice') {
-      const questions = quiz.questions.questions || [];
-      return questions.length;
-    } else if (quiz.type === 'matching') {
-      const words = quiz.questions.words || [];
-      return words.length;
-    }
-
-    return 0;
-  };
 
   if (loading) {
     return (
@@ -209,50 +73,8 @@ const DashboardPage: React.FC = () => {
         Willkommen, {user?.name}!
       </Typography>
 
-      {/* Current Level Status */}
-      <Card sx={{ mb: 4, backgroundColor: '#f5f5f5' }}>
-        <CardContent>
-          <Box display="flex" alignItems="center" justifyContent="space-between">
-            <Box display="flex" alignItems="center">
-              <SchoolIcon color="primary" sx={{ fontSize: 40, mr: 2 }} />
-              <Box>
-                <Typography variant="h5" gutterBottom>
-                  Your German Level: {stats.currentLevel} - {levelDescriptions[stats.currentLevel as keyof typeof levelDescriptions]}
-                </Typography>
-                <Box display="flex" alignItems="center" width="100%" maxWidth={600}>
-                <LinearProgress
-  variant="determinate"
-  value={stats.levelProgress}
-  sx={{
-    height: 10,
-    width: '100%',
-    borderRadius: 5,
-    '& .MuiLinearProgress-bar': {
-      backgroundColor: 'primary.main',
-      transition: 'transform 0.4s linear'
-    }
-  }}
-/>
-                  <Tooltip title="Continue learning to advance to the next level">
-                    <InfoOutlinedIcon sx={{ ml: 1, color: 'text.secondary' }} />
-                  </Tooltip>
-                </Box>
-              </Box>
-            </Box>
-            <Box textAlign="right">
-              <Typography variant="body2" color="textSecondary">
-                Quiz Average Score
-              </Typography>
-              <Typography variant="h4" color={stats.quizAvgScore > 70 ? 'success.main' : 'warning.main'}>
-                {stats.quizAvgScore}%
-              </Typography>
-              <Typography variant="body2" color="textSecondary">
-                {quizStats.totalAttempts} attempt{quizStats.totalAttempts !== 1 ? 's' : ''}
-              </Typography>
-            </Box>
-          </Box>
-        </CardContent>
-      </Card>
+      {/* User Progress Component */}
+      <UserProgressComponent />
 
       {/* Statistics Cards */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
@@ -271,7 +93,7 @@ const DashboardPage: React.FC = () => {
               German Texts
             </Typography>
             <Typography component="p" variant="h4">
-              {stats.paragraphs}
+              {recentParagraphs.length}
             </Typography>
             <Box sx={{ mt: 'auto' }}>
               <Button
@@ -300,7 +122,7 @@ const DashboardPage: React.FC = () => {
               Vocabulary Words
             </Typography>
             <Typography component="p" variant="h4">
-              {stats.savedWords}
+              {recentWords.length}
             </Typography>
             <Box sx={{ mt: 'auto' }}>
               <Button
@@ -329,7 +151,7 @@ const DashboardPage: React.FC = () => {
               German Quizzes
             </Typography>
             <Typography component="p" variant="h4">
-              {stats.quizzes}
+              {quizStats.totalAttempts}
             </Typography>
             <Box sx={{ mt: 'auto' }}>
               <Button

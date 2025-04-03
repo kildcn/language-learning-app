@@ -3,6 +3,7 @@ use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\ParagraphController;
 use App\Http\Controllers\QuizController;
 use App\Http\Controllers\SavedWordController;
+use App\Http\Controllers\ProgressController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -36,4 +37,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('quizzes', QuizController::class);
     Route::post('/quizzes/{quiz}/attempt', [QuizController::class, 'submitAttempt']);
     Route::get('/quizzes/{quiz}/attempts', [QuizController::class, 'attempts']);
+
+    // User Progress
+    Route::get('/user/progress', [ProgressController::class, 'getProgress']);
 });

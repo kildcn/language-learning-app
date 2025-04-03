@@ -573,118 +573,118 @@ const SavedWordsPage: React.FC = () => {
       )}
 
       {/* Word Detail Dialog */}
-      {selectedWord && (
-        <Dialog
-          open={dialogOpen}
-          onClose={handleCloseDialog}
-          maxWidth="sm"
-          fullWidth
-        >
-          <DialogTitle>
-            <Box display="flex" alignItems="center" justifyContent="space-between">
-              <Typography variant="h6">{selectedWord.word}</Typography>
-              <IconButton
-                onClick={() => speakGerman(selectedWord.word)}
-                color="primary"
-              >
-                <VolumeUpIcon />
-              </IconButton>
-            </Box>
-          </DialogTitle>
-          <DialogContent dividers>
-            <Typography variant="subtitle1" gutterBottom>
-              Definition:
-            </Typography>
-            <Typography variant="body1" paragraph>
-              {selectedWord.definition || 'No definition available'}
-            </Typography>
-
-            <Typography variant="subtitle1" gutterBottom>
-              Category:
-            </Typography>
-            <Box sx={{ mb: 2 }}>
-            <FormControl fullWidth size="small">
-  <Select
-    native
-    value={selectedWord.category || ''}
-    onChange={(e: SelectChangeEvent) => handleUpdateCategory(selectedWord.id, e.target.value)}
+{selectedWord && (
+  <Dialog
+    open={dialogOpen}
+    onClose={handleCloseDialog}
+    maxWidth="sm"
     fullWidth
-    size="small"
   >
-    <option value="">Uncategorized</option>
-    {getAvailableCategories()
-      .filter(cat => cat !== 'Uncategorized')
-      .map(category => (
-        <option key={category} value={category}>{category}</option>
-      ))}
-  </Select>
-</FormControl>
-            </Box>
+    <DialogTitle>
+      <Box display="flex" alignItems="center" justifyContent="space-between">
+        <Typography variant="h6">{selectedWord.word}</Typography>
+        <IconButton
+          onClick={() => speakGerman(selectedWord.word)}
+          color="primary"
+        >
+          <VolumeUpIcon />
+        </IconButton>
+      </Box>
+    </DialogTitle>
+    <DialogContent dividers>
+      <Typography variant="subtitle1" gutterBottom>
+        Definition:
+      </Typography>
+      <Typography variant="body1" paragraph>
+        {selectedWord.definition || 'No definition available'}
+      </Typography>
 
-            {selectedWord.context && (
-              <>
-                <Typography variant="subtitle1" gutterBottom>
-                  Context:
-                </Typography>
-                <Typography
-                  variant="body1"
-                  paragraph
-                  sx={{
-                    backgroundColor: 'rgba(0, 0, 0, 0.05)',
-                    p: 1,
-                    borderRadius: 1,
-                    fontStyle: 'italic'
-                  }}
-                >
-                  "{selectedWord.context}"
-                </Typography>
-              </>
-            )}
+      <Typography variant="subtitle1" gutterBottom>
+        Category:
+      </Typography>
+      <Box sx={{ mb: 2 }}>
+        <FormControl fullWidth size="small">
+          <Select
+            native
+            value={selectedWord.category || ''}
+            onChange={(e: SelectChangeEvent) => handleUpdateCategory(selectedWord.id, e.target.value)}
+            fullWidth
+            size="small"
+          >
+            <option value="">Uncategorized</option>
+            {getAvailableCategories()
+              .filter(cat => cat !== 'Uncategorized')
+              .map(category => (
+                <option key={category} value={category}>{category}</option>
+              ))}
+          </Select>
+        </FormControl>
+      </Box>
 
-            {selectedWord.paragraph && (
-              <>
-                <Divider sx={{ my: 2 }} />
-                <Typography variant="subtitle1" gutterBottom>
-                  Source:
-                </Typography>
-                <Box display="flex" alignItems="center">
-                  <Chip
-                    label={`Level ${selectedWord.paragraph.level}`}
-                    size="small"
-                    color="primary"
-                    sx={{ mr: 1 }}
-                  />
-                  <Button
-                    variant="text"
-                    size="small"
-                    component={RouterLink}
-                    to={`/paragraphs/${selectedWord.paragraph.id}`}
-                  >
-                    View German Text
-                  </Button>
-                </Box>
-              </>
-            )}
-          </DialogContent>
-          <DialogActions>
-            <Button
-              startIcon={<RefreshIcon />}
-              onClick={handleRegenerateDefinition}
-              disabled={regenerating}
-            >
-              {regenerating ? 'Regenerating...' : 'Regenerate Definition'}
-            </Button>
-            <Button
-              startIcon={<DeleteIcon />}
-              color="error"
-              onClick={() => handleDeleteWord(selectedWord.id)}
-              disabled={deleting}
-            >
-              {deleting ? 'Deleting...' : 'Delete'}
-            </Button>
-          </DialogActions>
-        </Dialog>
+      {selectedWord.context && (
+        <>
+          <Typography variant="subtitle1" gutterBottom>
+            Context:
+          </Typography>
+          <Typography
+            variant="body1"
+            paragraph
+            sx={{
+              backgroundColor: 'rgba(0, 0, 0, 0.05)',
+              p: 1,
+              borderRadius: 1,
+              fontStyle: 'italic'
+            }}
+          >
+            "{selectedWord.context}"
+          </Typography>
+        </>
       )}
+
+      {selectedWord.paragraph && (
+        <>
+          <Divider sx={{ my: 2 }} />
+          <Typography variant="subtitle1" gutterBottom>
+            Source:
+          </Typography>
+          <Box display="flex" alignItems="center">
+            <Chip
+              label={`Level ${selectedWord.paragraph.level}`}
+              size="small"
+              color="primary"
+              sx={{ mr: 1 }}
+            />
+            <Button
+              variant="text"
+              size="small"
+              component={RouterLink}
+              to={`/paragraphs/${selectedWord.paragraph.id}`}
+            >
+              View German Text
+            </Button>
+          </Box>
+        </>
+      )}
+    </DialogContent>
+    <DialogActions>
+      <Button
+        startIcon={<RefreshIcon />}
+        onClick={handleRegenerateDefinition}
+        disabled={regenerating}
+      >
+        {regenerating ? 'Regenerating...' : 'Regenerate Definition'}
+      </Button>
+      <Button
+        startIcon={<DeleteIcon />}
+        color="error"
+        onClick={() => handleDeleteWord(selectedWord.id)}
+        disabled={deleting}
+      >
+        {deleting ? 'Deleting...' : 'Delete'}
+      </Button>
+    </DialogActions>
+  </Dialog>
+)}
     </Box>
   );
 };

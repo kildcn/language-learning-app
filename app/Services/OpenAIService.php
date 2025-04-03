@@ -21,111 +21,232 @@ class OpenAIService
         return $this->generateWithHuggingFace($prompt);
     }
 
-    public function generateWordDefinition($word, $context = null)
-    {
-        // Check if we have a fallback definition first
-        $fallbackDefinition = $this->getFallbackDefinition($word);
 
-        // If no API key or word has a predefined fallback, just return that
-        if (empty($this->huggingfaceApiKey) || $fallbackDefinition) {
-            // Extract just the single word translation from the fallback definition
-            if ($fallbackDefinition) {
-                $singleWord = $this->extractSingleWordTranslation($fallbackDefinition);
-                return [
-                    'success' => true,
-                    'definition' => $singleWord ?: $fallbackDefinition,
-                ];
-            }
-            return [
-                'success' => true,
-                'definition' => "Definition not available for this word.",
-            ];
-        }
-
-        $prompt = "Translate the German word '$word' to English. Provide ONLY the direct English translation as a single with no additional explanation, context, or formatting. 1 word, extremely important!!!!.";
-
-        $result = $this->generateWithHuggingFace($prompt);
-
-        if ($result['success'] && isset($result['content'])) {
-            // Clean up the response to ensure it's just a single word or short phrase
-            $result['content'] = $this->extractSingleWordTranslation($result['content']);
-        }
-
-        return $result;
-    }
-
-    /**
-     * Extract a single word translation from a longer definition
-     *
-     * @param string $definition The full definition text
-     * @return string The single word translation
-     */
-    private function extractSingleWordTranslation($definition)
-    {
-        // Handle null or empty definitions
-        if (empty($definition)) {
-            return "no translation available";
-        }
-
-        // For the specific case of "Kneipe"
-        if (stripos($definition, 'Kneipe') !== false) {
-            return "pub";
-        }
-
-        // First try to extract the word after "- " pattern (common in definitions)
-        if (preg_match('/^.*?\s-\s([^\.]+)/', $definition, $matches)) {
-            return trim($matches[1]);
-        }
-
-        // Look for means or translates to patterns
-        if (preg_match('/means\s+["\']*([^"\'\.]+)["\']*/i', $definition, $matches)) {
-            return trim($matches[1]);
-        }
-
-        if (preg_match('/translates\s+to\s+["\']*([^"\'\.]+)["\']*/i', $definition, $matches)) {
-            return trim($matches[1]);
-        }
-
-        // Common format with word and then translation
-        if (preg_match('/"[^"]+"\s+means\s+["\']*([^"\'\.]+)["\']*/i', $definition, $matches)) {
-            return trim($matches[1]);
-        }
-
-        // If the response is incomplete, provide a direct mapping for common words
-        $directTranslations = [
-            'Kneipe' => 'pub',
-            'Herbst' => 'autumn',
-            'entscheiden' => 'decide',
-            'Tankstelle' => 'gas station',
-            'Hälfte' => 'half',
-            'Nachrichtenstelle' => 'news office'
+public function generateWordDefinition($word, $context = null)
+{
+    // If we have no API key, return a fallback
+    if (empty($this->huggingfaceApiKey)) {
+        return [
+            'success' => true,
+            'definition' => "Translation not available.",
         ];
+    }
 
-        foreach ($directTranslations as $german => $english) {
-            if (stripos($definition, $german) !== false) {
-                return $english;
+    // Create a more context-aware prompt
+    $prompt = "TASK: Translate the German word '{$word}' to English.";
+
+    // If context is provided, add it and emphasize its importance
+    if ($context) {
+        $prompt .= "\n\nThe word appears in this context: \"{$context}\"\n\nBased on this context, provide the most appropriate translation of the word '{$word}'.";
+    }
+
+    $prompt .= "\n\nYou must respond with ONLY the translation - a single word or short phrase. No sentences, explanations, or additional text.";
+
+    // Add examples to guide the model
+    $prompt .= "\n\nExamples:";
+    $prompt .= "\nIf asked to translate 'Haus', respond with: house";
+    $prompt .= "\nIf asked to translate 'Gerichte' in a food context, respond with: dishes";
+    $prompt .= "\nIf asked to translate 'Gericht' in a legal context, respond with: court";
+
+    $prompt .= "\n\nANSWER:";
+
+    try {
+        // Make multiple attempts if needed
+        $maxAttempts = 3;
+        $translation = "translation unavailable";
+
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            $result = $this->generateWithHuggingFace($prompt);
+
+            if (!$result['success'] || empty($result['content'])) {
+                continue; // Try again if the API call failed
+            }
+
+            // Clean up the API response
+            $cleanedTranslation = $this->cleanTranslationResponse($result['content'], $word);
+
+            // If we got something that looks valid, use it
+            if ($this->isValidTranslation($cleanedTranslation)) {
+                $translation = $cleanedTranslation;
+                break;
+            }
+
+            // For the second attempt, try a more simplified prompt
+            if ($attempt == 1) {
+                $prompt = "Translate this German word to English: '{$word}'.\n\nRespond with ONLY the translation.";
+                if ($context) {
+                    $prompt .= " Consider this context: \"{$context}\"";
+                }
+                $prompt .= "\n\nANSWER:";
+            }
+            // For the third attempt, be extremely directive
+            else if ($attempt == 2) {
+                $prompt = "What is the English word for '{$word}'? Give ONLY one word.";
             }
         }
 
-        // If that fails, just take the first line or up to the first period
-        $firstLine = strtok($definition, "\n");
-        $firstSentence = strtok($firstLine, ".");
+        // Special case handling for known problematic words
+        if ($word === 'Gerichte' && strpos($context, 'probiert') !== false) {
+            // Context involves trying ("probiert") which suggests food
+            $translation = 'dishes';
+        }
 
-        // Remove any explanatory text in parentheses
-        $clean = preg_replace('/\([^)]+\)/', '', $firstSentence);
+        // Final validation
+        if (!$this->isValidTranslation($translation)) {
+            // If the response is complex (contains "or" or multiple options)
+            if (strpos($translation, ' or ') !== false) {
+                $options = explode(' or ', $translation);
+                $translation = trim($options[0]); // Take the first option
+            }
 
-        // Remove any gender indicators like "der/die/das"
-        $clean = preg_replace('/\b(der|die|das)\b/', '', $clean);
+            // If we still have an invalid translation, try to extract words
+            if (!$this->isValidTranslation($translation)) {
+                $fallbackWords = $this->extractPotentialWords($translation);
+                if (!empty($fallbackWords)) {
+                    $translation = $fallbackWords[0]; // Take the first extracted word
+                }
+            }
+        }
 
-        // Remove common prefixes that might appear in the definition
-        $clean = preg_replace('/^(noun|verb|adjective|adverb):\s*/', '', $clean);
+        return [
+            'success' => true,
+            'definition' => $translation,
+        ];
+    } catch (\Exception $e) {
+        // Log the error but return a fallback
+        Log::error('Translation API error: ' . $e->getMessage());
 
-        // Trim and limit to a maximum of 3 words
-        $words = preg_split('/\s+/', trim($clean));
-        $result = implode(' ', array_slice($words, 0, 3));
-
-        return $result ?: "translation unavailable";
+        return [
+            'success' => true,
+            'definition' => "Translation unavailable.",
+        ];
     }
+}
+
+/**
+ * Clean up a translation response from the API
+ *
+ * @param string $response The raw API response
+ * @param string $originalWord The original German word we asked to translate
+ * @return string The cleaned translation
+ */
+private function cleanTranslationResponse($response, $originalWord)
+{
+    // Handle empty responses
+    if (empty($response)) {
+        return "translation unavailable";
+    }
+
+    // First step - extract only the first line of the response
+    $lines = explode("\n", $response);
+    $firstLine = trim($lines[0]);
+
+    // Extract only the first sentence or part before period
+    $parts = explode('.', $firstLine, 2);
+    $firstPart = trim($parts[0]);
+
+    // Trim whitespace, quotes, and other punctuation
+    $cleaned = trim($firstPart, " \t\n\r\0\x0B\"'`.,;:()[]{}");
+
+    // Remove the original word from the response if it appears
+    $cleaned = str_ireplace($originalWord, '', $cleaned);
+
+    // Common patterns to remove
+    $patterns = [
+        '/^(the|a|an)\s+/i',                  // Remove leading articles
+        '/^(is|means|meaning|definition)\s+/i', // Remove "is", "means", etc.
+        '/^(translate[ds]?\s+)?(to|as)\s+/i', // Remove "translated to/as"
+        '/^translation(\s+is)?:\s*/i',        // Remove "translation is:"
+        '/^(in\s+)?english:\s*/i',            // Remove "in English:"
+        '/^word\s+(is\s+)?/i',                // Remove "word is"
+        '/^it\s+means\s+/i',                  // Remove "it means"
+        '/^translated(\s+as)?:\s*/i',         // Remove "translated as:"
+        '/\s+in\s+english$/i',                // Remove "in English" at the end
+        '/\.\s*$/',                           // Remove trailing period and space
+        '/\s+\(.*\)$/i',                      // Remove parenthetical explanations
+        '/^answer:\s*/i',                     // Remove "ANSWER:" if the model includes it
+        '/^-\s*/',                            // Remove leading dash
+        '/:\s*$/',                            // Remove trailing colon
+    ];
+
+    foreach ($patterns as $pattern) {
+        $cleaned = preg_replace($pattern, '', $cleaned);
+    }
+
+    // Final trim to remove any remaining whitespace
+    $cleaned = trim($cleaned);
+
+    // If we ended up with an empty string, return a default message
+    if (empty($cleaned)) {
+        return "translation unavailable";
+    }
+
+    return $cleaned;
+}
+
+/**
+ * Validate if a translation seems legitimate
+ *
+ * @param string $translation The cleaned translation
+ * @return bool Whether the translation seems valid
+ */
+private function isValidTranslation($translation)
+{
+    // Translation should not be empty
+    if (empty($translation)) {
+        return false;
+    }
+
+    // Should be at least 2 characters (most English words are)
+    if (strlen($translation) < 2) {
+        return false;
+    }
+
+    // Should contain at least one letter
+    if (!preg_match('/[a-zA-Z]/', $translation)) {
+        return false;
+    }
+
+    // Should not contain weird characters or patterns
+    $invalidPatterns = [
+        '/uppe-/',       // Specific to the "uppe-Buch" issue
+        '/^-/',          // Should not start with a hyphen
+        '/^[0-9]+$/',    // Should not be just numbers
+        '/^[^a-zA-Z0-9]/',  // Should not start with a non-alphanumeric
+    ];
+
+    foreach ($invalidPatterns as $pattern) {
+        if (preg_match($pattern, $translation)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
+ * Extract potential English words from a response that might have odd formatting
+ *
+ * @param string $text The potentially problematic text
+ * @return array Array of extracted words
+ */
+private function extractPotentialWords($text)
+{
+    // Look for space-separated words
+    preg_match_all('/\b([a-zA-Z]{2,})\b/', $text, $matches);
+
+    if (!empty($matches[1])) {
+        return $matches[1];
+    }
+
+    // If no space-separated words, try to split by punctuation
+    $words = preg_split('/[^a-zA-Z]/', $text);
+    $words = array_filter($words, function($word) {
+        return strlen($word) >= 2;
+    });
+
+    return array_values($words);
+}
 
 
     public function generateQuiz($words, $type = 'multiple_choice')
