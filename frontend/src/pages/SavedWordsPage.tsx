@@ -21,6 +21,9 @@ import {
 } from '@mui/icons-material';
 import { savedWordService } from '../services/api';
 import CategoryWordGenerator from '../components/vocabulary/CategoryWordGenerator';
+import SearchDictionaryButton from '../components/SearchDictionaryButton';
+import DictionarySearchMenu from '../components/DictionarySearchMenu';
+import TranslationServiceNotice from '../components/TranslationServiceNotice';
 
 // Define word difficulty levels by letter counts
 const getWordDifficulty = (word: string): 'easy' | 'medium' | 'hard' => {
@@ -311,6 +314,8 @@ const SavedWordsPage: React.FC = () => {
         My German Vocabulary
       </Typography>
 
+    <TranslationServiceNotice />
+
       {/* Word Generator */}
       <CategoryWordGenerator />
 
@@ -387,80 +392,95 @@ const SavedWordsPage: React.FC = () => {
             {filteredWords.length > 0 ? (
               <Grid container spacing={2}>
                 {filteredWords.map((word) => {
-                  const difficulty = getWordDifficulty(word.word);
-                  const wordCategory = word.category || 'Uncategorized';
-                  const wordType = extractCategory(word.definition);
+  const difficulty = getWordDifficulty(word.word);
+  const wordCategory = word.category || 'Uncategorized';
+  const wordType = extractCategory(word.definition);
+  const hasFailedDefinition = word.definition?.includes("translation unavailable") ||
+                             word.definition?.includes("keine Antwort");
 
-                  return (
-                  <Grid item xs={12} sm={6} md={4} key={word.id}>
-                    <Card>
-                      <CardContent sx={{ pb: 1 }}>
-                        <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
-                          <Typography variant="h6">
-                            {word.word}
-                          </Typography>
-                          <IconButton
-                            size="small"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              speakGerman(word.word);
-                            }}
-                            color="primary"
-                          >
-                            <VolumeUpIcon />
-                          </IconButton>
-                        </Box>
+  return (
+  <Grid item xs={12} sm={6} md={4} key={word.id}>
+    <Card>
+      <CardContent sx={{ pb: 1 }}>
+        <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
+          <Typography variant="h6">
+            {word.word}
+          </Typography>
+          <IconButton
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation();
+              speakGerman(word.word);
+            }}
+            color="primary"
+          >
+            <VolumeUpIcon />
+          </IconButton>
+        </Box>
 
-                        <Box display="flex" flexWrap="wrap" gap={0.5} mb={1}>
-                          <Chip
-                            label={difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}
-                            color={difficultyColors[difficulty] as any}
-                            size="small"
-                          />
-                          {wordType && (
-                            <Chip
-                              label={wordType}
-                              variant="outlined"
-                              size="small"
-                            />
-                          )}
-                          <Chip
-                            label={wordCategory}
-                            color="primary"
-                            variant="outlined"
-                            size="small"
-                          />
-                        </Box>
+        <Box display="flex" flexWrap="wrap" gap={0.5} mb={1}>
+          <Chip
+            label={difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}
+            color={difficultyColors[difficulty] as any}
+            size="small"
+          />
+          {wordType && (
+            <Chip
+              label={wordType}
+              variant="outlined"
+              size="small"
+            />
+          )}
+          <Chip
+            label={wordCategory}
+            color="primary"
+            variant="outlined"
+            size="small"
+          />
+          {hasFailedDefinition && (
+            <Chip
+              label="Translation error"
+              color="error"
+              size="small"
+              variant="outlined"
+            />
+          )}
+        </Box>
 
-                        <Typography variant="body2" color="textSecondary" noWrap>
-                          {word.definition || 'No definition available'}
-                        </Typography>
-                      </CardContent>
-                      <CardActions>
-                        <Button
-                          size="small"
-                          onClick={() => handleWordClick(word)}
-                        >
-                          View Details
-                        </Button>
-                        {word.paragraph && (
-                          <Tooltip title="Source German text">
-                            <Chip
-                              label={`Level ${word.paragraph.level}`}
-                              size="small"
-                              color="primary"
-                              variant="outlined"
-                              component={RouterLink}
-                              to={`/paragraphs/${word.paragraph.id}`}
-                              clickable
-                              sx={{ ml: 'auto' }}
-                            />
-                          </Tooltip>
-                        )}
-                      </CardActions>
-                    </Card>
-                  </Grid>
-                )})}
+        <Typography variant="body2" color="textSecondary" noWrap>
+          {word.definition || 'No definition available'}
+        </Typography>
+      </CardContent>
+      <CardActions>
+        <Button
+          size="small"
+          onClick={() => handleWordClick(word)}
+        >
+          View Details
+        </Button>
+
+        {hasFailedDefinition && (
+          <DictionarySearchMenu word={word.word} size="small" />
+        )}
+
+        {word.paragraph && (
+          <Tooltip title="Source German text">
+            <Chip
+              label={`Level ${word.paragraph.level}`}
+              size="small"
+              color="primary"
+              variant="outlined"
+              component={RouterLink}
+              to={`/paragraphs/${word.paragraph.id}`}
+              clickable
+              sx={{ ml: 'auto' }}
+            />
+          </Tooltip>
+        )}
+      </CardActions>
+    </Card>
+  </Grid>
+)})}
               </Grid>
             ) : (
               <Paper sx={{ p: 3, textAlign: 'center' }}>
@@ -599,6 +619,17 @@ const SavedWordsPage: React.FC = () => {
         {selectedWord.definition || 'No definition available'}
       </Typography>
 
+      {/* Add the search dictionary button */}
+      {(selectedWord.definition?.includes("translation unavailable") ||
+        selectedWord.definition?.includes("keine Antwort")) && (
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="body2" color="error" sx={{ mb: 1 }}>
+            Automatic translation currently unavailable.
+          </Typography>
+          <SearchDictionaryButton word={selectedWord.word} />
+        </Box>
+      )}
+
       <Typography variant="subtitle1" gutterBottom>
         Category:
       </Typography>
@@ -667,6 +698,7 @@ const SavedWordsPage: React.FC = () => {
       )}
     </DialogContent>
     <DialogActions>
+      <DictionarySearchMenu word={selectedWord.word} />
       <Button
         startIcon={<RefreshIcon />}
         onClick={handleRegenerateDefinition}
