@@ -11,19 +11,48 @@ class ProgressService
 {
     // Define level thresholds - users will level up when reaching these points
     const LEVEL_THRESHOLDS = [
-        1, 10, 25, 50, 75, 100, 150, 200, 250,
-        300, 350, 400, 450, 500, 550, 600, 650, 700,
-        750, 800, 850, 900, 950, 999
+        1, 50, 125, 250, 375, 500, 750, 1000, 1250,
+        1500, 1750, 2000, 2250, 2500, 2750, 3000, 3250, 3500,
+        3750, 4000, 4250, 4500, 4750, 5000, 5500, 6000, 6500,
+        7000, 7500, 8000, 8500, 9000, 9500, 9999
     ];
 
-    // CEFR equivalents for reference (approximate)
-    const CEFR_RANGES = [
-        'A1' => [1, 99],      // Complete beginner
-        'A2' => [100, 249],   // Elementary
-        'B1' => [250, 499],   // Intermediate
-        'B2' => [500, 749],   // Upper Intermediate
-        'C1' => [750, 950],   // Advanced
-        'C2' => [951, 999]    // Mastery
+    // Define level names
+    const LEVEL_NAMES = [
+        1 => 'Anfängerchen', // Little Beginner
+        50 => 'Buchstabenzähler', // Letter Counter
+        125 => 'Artikelritter', // Knight of the Articles
+        250 => 'Wortschatzsucher', // Vocabulary Seeker
+        375 => 'Satzbauer', // Sentence Builder
+        500 => 'Grammatikknacker', // Grammar Cracker
+        750 => 'Umlautmeister', // Master of ÜÖÄ
+        1000 => 'Zwischenredner', // Intermediate Speaker
+        1250 => 'Konjugationskönner', // Conjugation Pro
+        1500 => 'Kasuskapitän', // Captain of the Cases
+        1750 => 'Flüssigkeitstänzer', // Fluency Dancer
+        2000 => 'Fehlerjäger', // Mistake Hunter
+        2250 => 'Redewendungssammler', // Idiom Collector
+        2500 => 'Wortjongleur', // Word Juggler
+        2750 => 'Syntaxzauberer', // Syntax Wizard
+        3000 => 'Sprachdetektiv', // Language Detective
+        3250 => 'Dialogdompteur', // Dialogue Tamer
+        3500 => 'Akkusativakrobat', // Accusative Acrobat
+        3750 => 'Sprechmeister', // Speech Master
+        4000 => 'Redekünstler', // Speaking Artist
+        4250 => 'Kulturtaucher', // Culture Diver
+        4500 => 'Textversteher', // Text Comprehender
+        4750 => 'Ausdrucksarchitekt', // Expression Architect
+        5000 => 'Fluenzfürst', // Fluency Prince
+        5500 => 'Redesamurai', // Speech Samurai
+        6000 => 'Grammatikgott', // Grammar God
+        6500 => 'Lautlegende', // Legend of Sound
+        7000 => 'Meister des Genus', // Master of Gender
+        7500 => 'Wortschatzkaiser', // Vocabulary Emperor
+        8000 => 'Sinnschmied', // Meaning Blacksmith
+        8500 => 'Sprachgeist', // Language Spirit
+        9000 => 'Deutschdominator', // German Dominator
+        9500 => 'Hochsprachenheld', // High Language Hero
+        9999 => 'Sprachmeister', // Language Master
     ];
 
     /**
@@ -45,6 +74,7 @@ class ProgressService
         // Determine current level and next level threshold
         $currentLevel = $this->determineLevel($points);
         $nextLevelThreshold = $this->getNextLevelThreshold($currentLevel);
+        $currentLevelName = $this->getLevelName($currentLevel);
 
         // Calculate percentage progress to next level
         $previousLevelThreshold = $this->getPreviousLevelThreshold($currentLevel);
@@ -55,15 +85,17 @@ class ProgressService
         if ($pointsNeededForNextLevel > 0) {
             $percentageToNextLevel = min(100, round(($pointsForCurrentLevel / $pointsNeededForNextLevel) * 100));
         }
+        $nextLevelName = $this->getLevelName(min(9999, $currentLevel + 1));
 
-        // Map the numerical level to CEFR equivalent for reference
-        $cefrLevel = $this->mapToCEFR($currentLevel);
-
+        // Remove CEFR level references
         return [
             'level' => $currentLevel,
-            'cefr_equivalent' => $cefrLevel,
+            'level_name' => $currentLevelName,
             'points' => $points,
-            'next_level' => min(999, $currentLevel + 1),
+            'next_level' => min(9999, $currentLevel + 1),
+            'next_level_name' => $nextLevelName,
+            'next_level_points' => $nextLevelThreshold,
+            'current_level_points' => $previousLevelThreshold,
             'percentage_to_next_level' => $percentageToNextLevel,
             'stats' => [
                 'words_learned' => $wordCount['total'],
@@ -263,19 +295,17 @@ class ProgressService
     }
 
     /**
-     * Map the numerical level to CEFR level
+     * Get the level name based on the level number
      *
      * @param int $level
      * @return string
      */
-    private function mapToCEFR(int $level): string
+    private function getLevelName(int $level): string
     {
-        foreach (self::CEFR_RANGES as $cefrLevel => $range) {
-            if ($level >= $range[0] && $level <= $range[1]) {
-                return $cefrLevel;
-            }
+        if (isset(self::LEVEL_NAMES[$level])) {
+            return self::LEVEL_NAMES[$level];
         }
-
-        return 'A1'; // Default to A1 if no match
+        // If no specific name is found, return a default name
+        return "Level " . $level;
     }
 }

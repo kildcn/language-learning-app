@@ -16,6 +16,11 @@ class SavedWord extends Model
         'user_id',
         'paragraph_id',
         'category',
+        'is_user_defined', // New flag to track user-provided definitions
+    ];
+
+    protected $casts = [
+        'is_user_defined' => 'boolean',
     ];
 
     public function user()

@@ -1,4 +1,4 @@
-// src/types/index.ts - Update this file with improved Quiz types
+// src/types/index.ts - Update types to include new fields
 export interface User {
   id: number;
   name: string;
@@ -25,6 +25,8 @@ export interface SavedWord {
   definition?: string;
   user_id: number;
   paragraph_id?: number;
+  category?: string;
+  is_user_defined?: boolean;
   paragraph?: Paragraph;
   created_at: string;
   updated_at: string;

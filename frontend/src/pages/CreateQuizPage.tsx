@@ -19,7 +19,9 @@ import {
   Shuffle as ShuffleIcon
 } from '@mui/icons-material';
 import { savedWordService, quizService } from '../services/api';
+import { SavedWord } from '../types';
 
+// TabPanel component
 interface TabPanelProps {
   children?: React.ReactNode;
   index: number;
@@ -65,7 +67,7 @@ const CreateQuizSchema = Yup.object().shape({
 
 const CreateQuizPage: React.FC = () => {
   const navigate = useNavigate();
-  const [words, setWords] = useState<any[]>([]);
+  const [words, setWords] = useState<SavedWord[]>([]); // Updated type
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tabValue, setTabValue] = useState(0);
@@ -78,9 +80,20 @@ const CreateQuizPage: React.FC = () => {
   const fetchWords = async () => {
     setLoading(true);
     try {
-      const response = await savedWordService.getAll();
-      const fetchedWords = response.data.data || [];
-      setWords(fetchedWords);
+      let allWords: SavedWord[] = []; // Updated type
+      let currentPage = 1;
+      let totalPages = 1;
+
+      do {
+        const response: any = await savedWordService.getAll({ page: currentPage }); // Fetch paginated words
+        const { data, last_page } = response.data; // Get data and last_page from response.data
+
+        allWords = [...allWords, ...data];
+        totalPages = last_page;
+        currentPage++;
+      } while (currentPage <= totalPages);
+
+      setWords(allWords);
 
       // Group words by categories for easier selection
       const categories: Record<string, string[]> = {
@@ -91,7 +104,7 @@ const CreateQuizPage: React.FC = () => {
         'Other': []
       };
 
-      fetchedWords.forEach((word: any) => {
+      allWords.forEach((word: SavedWord) => { // Updated type
         categories['All Words'].push(word.id.toString());
 
         // Extract category from definition
@@ -104,7 +117,7 @@ const CreateQuizPage: React.FC = () => {
             definition.includes('das ')) {
           category = 'Nouns';
         } else if (definition.includes('verb') ||
-                  definition.includes('to ') === 0) {
+                  definition.startsWith('to ')) {
           category = 'Verbs';
         } else if (definition.includes('adjective')) {
           category = 'Adjectives';
@@ -281,9 +294,9 @@ const CreateQuizPage: React.FC = () => {
                     Select German Words for the Quiz
                   </Typography>
 
-                  {touched.word_ids && typeof errors.word_ids === 'string' && (
+                  {touched.word_ids && Array.isArray(errors.word_ids) && (
                     <FormHelperText error>
-                      {errors.word_ids}
+                      {errors.word_ids.join(', ')}
                     </FormHelperText>
                   )}
 

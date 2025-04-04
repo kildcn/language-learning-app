@@ -40,6 +40,7 @@ class SavedWordController extends Controller
             'context' => 'nullable|string',
             'paragraph_id' => 'nullable|exists:paragraphs,id',
             'category' => 'nullable|string',
+            'custom_definition' => 'nullable|string', // Added for user-provided translations
         ]);
 
         // Check if the word is already saved by the user
@@ -55,24 +56,30 @@ class SavedWordController extends Controller
             ]);
         }
 
-        // Generate definition using Hugging Face (via OpenAIService)
-        try {
-            $definitionResult = $this->openaiService->generateWordDefinition(
-                $request->word,
-                $request->context
-            );
+        // Use custom definition if provided, otherwise generate with API
+        $definition = null;
+        if ($request->has('custom_definition') && !empty($request->custom_definition)) {
+            $definition = $request->custom_definition;
+        } else {
+            // Generate definition using Hugging Face (via OpenAIService)
+            try {
+                $definitionResult = $this->openaiService->generateWordDefinition(
+                    $request->word,
+                    $request->context
+                );
 
-            // OpenAIService now always returns success=true
-            // with fallback definitions when needed
-            $definition = $definitionResult['content'] ?? $definitionResult['definition'] ?? null;
+                // OpenAIService now always returns success=true
+                // with fallback definitions when needed
+                $definition = $definitionResult['content'] ?? $definitionResult['definition'] ?? null;
 
-            if (!$definition) {
-                $definition = "No definition available for this word.";
+                if (!$definition) {
+                    $definition = "No definition available for this word.";
+                }
+            } catch (\Exception $e) {
+                // Log the error but continue with a fallback definition
+                Log::error('Definition generation failed: ' . $e->getMessage());
+                $definition = "No definition available at this time.";
             }
-        } catch (\Exception $e) {
-            // Log the error but continue with a fallback definition
-            Log::error('Definition generation failed: ' . $e->getMessage());
-            $definition = "No definition available at this time.";
         }
 
         try {
@@ -83,6 +90,7 @@ class SavedWordController extends Controller
                 'user_id' => $request->user()->id,
                 'paragraph_id' => $request->paragraph_id,
                 'category' => $request->category,
+                'is_user_defined' => $request->has('custom_definition') && !empty($request->custom_definition), // Track if user provided the definition
             ]);
 
             return response()->json([
@@ -115,7 +123,14 @@ class SavedWordController extends Controller
             'category' => 'nullable|string',
         ]);
 
-        $savedWord->update($request->only(['context', 'definition', 'category']));
+        $data = $request->only(['context', 'definition', 'category']);
+
+        // Set is_user_defined flag if the definition is being updated
+        if ($request->has('definition')) {
+            $data['is_user_defined'] = true;
+        }
+
+        $savedWord->update($data);
 
         return response()->json([
             'message' => 'Saved word updated successfully',
@@ -135,86 +150,88 @@ class SavedWordController extends Controller
     }
 
     public function regenerateDefinition(Request $request, SavedWord $savedWord)
-{
-    $this->authorize('update', $savedWord);
+    {
+        $this->authorize('update', $savedWord);
 
-    try {
-        // Force specific translations for problematic words
-        $specificOverrides = [
-            'herbst' => 'autumn',
-            'kneipe' => 'pub',
-            'entscheiden' => 'decide',
-            'hälfte' => 'half',
-            'tankstelle' => 'gas station',
-            'nachrichtenstelle' => 'news office',
-            'vögeln' => 'birds',
-            'blumen' => 'flowers',
-            'sonne' => 'sun',
-            'jahr' => 'year',
-            'zeit' => 'time',
-            'frühling' => 'spring',
-            'kindergarten' => 'kindergarten',
-            'kita' => 'daycare',
-            'kinder' => 'children',
-            'erwachsenen' => 'adults',
-            'essen' => 'food',
-            'trinken' => 'drink',
-            'wohnen' => 'to live',
-            'kaufen' => 'to buy',
-            'verkaufen' => 'to sell'
-        ];
+        try {
+            // Force specific translations for problematic words
+            $specificOverrides = [
+                'herbst' => 'autumn',
+                'kneipe' => 'pub',
+                'entscheiden' => 'decide',
+                'hälfte' => 'half',
+                'tankstelle' => 'gas station',
+                'nachrichtenstelle' => 'news office',
+                'vögeln' => 'birds',
+                'blumen' => 'flowers',
+                'sonne' => 'sun',
+                'jahr' => 'year',
+                'zeit' => 'time',
+                'frühling' => 'spring',
+                'kindergarten' => 'kindergarten',
+                'kita' => 'daycare',
+                'kinder' => 'children',
+                'erwachsenen' => 'adults',
+                'essen' => 'food',
+                'trinken' => 'drink',
+                'wohnen' => 'to live',
+                'kaufen' => 'to buy',
+                'verkaufen' => 'to sell'
+            ];
 
-        // Check if we have a direct override for this word (case insensitive)
-        $wordLower = mb_strtolower($savedWord->word, 'UTF-8'); // Use mb_strtolower for proper UTF-8 support
-        if (array_key_exists($wordLower, $specificOverrides)) {
-            $definition = $specificOverrides[$wordLower];
+            // Check if we have a direct override for this word (case insensitive)
+            $wordLower = mb_strtolower($savedWord->word, 'UTF-8'); // Use mb_strtolower for proper UTF-8 support
+            if (array_key_exists($wordLower, $specificOverrides)) {
+                $definition = $specificOverrides[$wordLower];
 
-            // Explicitly update the model to ensure it saves
+                // Explicitly update the model to ensure it saves
+                $savedWord->definition = $definition;
+                $savedWord->is_user_defined = false; // It's from our predefined list
+                $savedWord->save();
+
+                return response()->json([
+                    'message' => 'Definition regenerated successfully',
+                    'savedWord' => $savedWord->fresh(), // Use fresh() to get the updated record
+                ]);
+            }
+
+            // If no override, proceed with normal logic
+            $definitionResult = $this->openaiService->generateWordDefinition(
+                $savedWord->word,
+                $savedWord->context
+            );
+
+            // Get the response from the API
+            $definition = $definitionResult['content'] ?? $definitionResult['definition'] ?? null;
+
+            // Validate the response - if it's nonsensical, use "no translation available"
+            $isValid = !empty($definition) &&
+                    strlen($definition) >= 2 &&
+                    !preg_match('/^[a-z],\s/', $definition) && // Catches patterns like "h, Kneipe means"
+                    !preg_match('/efer\s/', $definition);      // Catches the "efer Bäume zu" case
+
+            if (!$isValid) {
+                $definition = "translation unavailable";
+            }
+
+            // Direct model update to ensure it saves
             $savedWord->definition = $definition;
+            $savedWord->is_user_defined = false; // Reset since it's now AI-generated
             $savedWord->save();
 
             return response()->json([
                 'message' => 'Definition regenerated successfully',
-                'savedWord' => $savedWord->fresh(), // Use fresh() to get the updated record
+                'savedWord' => $savedWord->fresh(),
             ]);
+        } catch (\Exception $e) {
+            Log::error('Error regenerating definition: ' . $e->getMessage());
+
+            return response()->json([
+                'message' => 'Failed to regenerate definition',
+                'error' => 'Service unavailable'
+            ], 500);
         }
-
-        // If no override, proceed with normal logic
-        $definitionResult = $this->openaiService->generateWordDefinition(
-            $savedWord->word,
-            $savedWord->context
-        );
-
-        // Get the response from the API
-        $definition = $definitionResult['content'] ?? $definitionResult['definition'] ?? null;
-
-        // Validate the response - if it's nonsensical, use "no translation available"
-        $isValid = !empty($definition) &&
-                strlen($definition) >= 2 &&
-                !preg_match('/^[a-z],\s/', $definition) && // Catches patterns like "h, Kneipe means"
-                !preg_match('/efer\s/', $definition);      // Catches the "efer Bäume zu" case
-
-        if (!$isValid) {
-            $definition = "translation unavailable";
-        }
-
-        // Direct model update to ensure it saves
-        $savedWord->definition = $definition;
-        $savedWord->save();
-
-        return response()->json([
-            'message' => 'Definition regenerated successfully',
-            'savedWord' => $savedWord->fresh(),
-        ]);
-    } catch (\Exception $e) {
-        Log::error('Error regenerating definition: ' . $e->getMessage());
-
-        return response()->json([
-            'message' => 'Failed to regenerate definition',
-            'error' => 'Service unavailable'
-        ], 500);
     }
-}
 
     /**
      * Get list of available vocabulary categories
@@ -251,49 +268,50 @@ class SavedWordController extends Controller
      * Save multiple words at once
      */
     public function bulkSave(Request $request)
-{
-    $request->validate([
-        'words' => 'required|array',
-        'words.*.word' => 'required|string|max:50',
-        'words.*.definition' => 'nullable|string',
-        'category' => 'nullable|string',
-    ]);
+    {
+        $request->validate([
+            'words' => 'required|array',
+            'words.*.word' => 'required|string|max:50',
+            'words.*.definition' => 'nullable|string',
+            'category' => 'nullable|string',
+        ]);
 
-    $user = $request->user();
-    $category = $request->input('category');
-    $savedWords = [];
-    $errors = [];
+        $user = $request->user();
+        $category = $request->input('category');
+        $savedWords = [];
+        $errors = [];
 
-    foreach ($request->words as $wordData) {
-        // Check if word already exists for this user
-        $existingWord = $user->savedWords()
-            ->where('word', $wordData['word'])
-            ->first();
+        foreach ($request->words as $wordData) {
+            // Check if word already exists for this user
+            $existingWord = $user->savedWords()
+                ->where('word', $wordData['word'])
+                ->first();
 
-        if ($existingWord) {
-            // Skip existing words
-            continue;
+            if ($existingWord) {
+                // Skip existing words
+                continue;
+            }
+
+            try {
+                $savedWord = SavedWord::create([
+                    'word' => $wordData['word'],
+                    'definition' => $wordData['definition'] ?? null,
+                    'user_id' => $user->id,
+                    'category' => $category,
+                    'is_user_defined' => isset($wordData['definition']), // If definition provided, mark as user-defined
+                ]);
+
+                $savedWords[] = $savedWord;
+            } catch (\Exception $e) {
+                Log::error('Error bulk saving word: ' . $e->getMessage());
+                $errors[] = $wordData['word'];
+            }
         }
 
-        try {
-            $savedWord = SavedWord::create([
-                'word' => $wordData['word'],
-                'definition' => $wordData['definition'] ?? null,
-                'user_id' => $user->id,
-                'category' => $category,
-            ]);
-
-            $savedWords[] = $savedWord;
-        } catch (\Exception $e) {
-            Log::error('Error bulk saving word: ' . $e->getMessage());
-            $errors[] = $wordData['word'];
-        }
+        return response()->json([
+            'message' => count($savedWords) . ' words saved successfully',
+            'savedWords' => $savedWords,
+            'errors' => $errors
+        ]);
     }
-
-    return response()->json([
-        'message' => count($savedWords) . ' words saved successfully',
-        'savedWords' => $savedWords,
-        'errors' => $errors
-    ]);
-}
 }
